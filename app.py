@@ -21,6 +21,25 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+import importlib
+import os
+
+import engine.core
+import ai.llm, ai.facts, ai.guardrails, ai.pipeline
+
+
+def _fresh_code():
+    """Streamlit Cloud pulls new commits without restarting, so helper modules already in memory can be older than app.py.
+    Reload them (in dependency order) whenever a file on disk is newer than the copy in memory."""
+    mods = [engine.core, ai.llm, ai.facts, ai.guardrails, ai.pipeline]
+    stale = [m for m in mods if getattr(m, '_loaded_mtime', None) != os.path.getmtime(m.__file__)]
+    if stale:
+        for m in mods:
+            importlib.reload(m)
+            m._loaded_mtime = os.path.getmtime(m.__file__)
+        st.cache_data.clear()
+_fresh_code()
+
 from ai import llm
 from ai import guardrails as G
 from ai import pipeline as P
