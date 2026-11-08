@@ -55,6 +55,7 @@ ANTHROPIC_API_KEY = "sk-ant-..."
 ## Known limits
 
 - The data has no outcomes, so "declining now" stands in for "will leave", and the chance of leaving and the chance of saving are assumptions. The 15 calls are re-ranked under 11 versions of these assumptions; merchants that drop out under some are marked Borderline.
-- Pricing cannot be seen in the numbers, only in notes or a conversation, so those merchants go to a person.
+- Pricing cannot be seen in the numbers. Merchants with no operational problem are labelled "Likely pricing" when renewal is within 60 days (PB-3's own trigger) and a person confirms on the call. Account manager notes are shown as supporting evidence but never used to pick or rank.
+- **Future scope:** the expected saving uses assumed save chances by cause. Outcome data (how many merchants recovered after a call, by cause and playbook) would replace these assumptions and make the saving estimate, and so the ranking, more accurate.
 - Draft language is guessed from the merchant's city and must be confirmed with the merchant.
 - All data is synthetic, from the build-a-thon data pack.

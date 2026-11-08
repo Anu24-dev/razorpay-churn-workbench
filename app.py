@@ -5,7 +5,7 @@ Input: the data pack (or any file with the same P2_Merchants columns).
 Engine (rules + statistics, no AI): who is declining, how fast, why, which of the six data-pack playbooks, who gets the 15 calls.
 AI (Claude): reads account-manager notes, writes the CSM's reason line, drafts the outreach (regional + English),
 checks the translation, answers questions about one merchant. Code guardrails check every draft. AI can be switched off.
-People: approve, edit or reject every draft; confirm unclear causes; account managers own pricing.
+People: approve, edit or reject every draft; confirm likely-pricing causes the numbers cannot show; account managers own pricing.
 
 Design: built for a CSM preparing calls. The answer comes first (who, why, what to do), details are one click away,
 the list stays visible while a merchant is open, and every action sits next to the thing it acts on.
@@ -13,6 +13,7 @@ the list stays visible while a merchant is open, and every action sits next to t
 from __future__ import annotations
 
 import datetime as dt
+import re
 import hashlib
 import io
 
@@ -111,7 +112,40 @@ def pill(text, kind='grey'):
 TIER_SHORT = {'1': 'Imminent fade', '2': 'Declining · renews soon', '3': 'Declining', '3P': 'Possible decline', '4': 'Bounced back', '5': 'Watch', '6': 'Stable / growing'}
 TIER_PILL = {'1': ('Imminent fade', 'red'), '2': ('Declining, renews within 90 days', 'amber'), '3': ('Declining', 'amber'),
              '3P': ('Possible decline', 'blue'), '4': ('Bounced back', 'grey'), '5': ('Watch (experimental)', 'purple'), '6': ('Stable / growing', 'green')}
-DRIVER_NAME = {'performance': 'Performance', 'service': 'Service', 'engagement': 'Engagement', core.NC: 'Unclear'}
+DRIVER_NAME = {'performance': 'Performance', 'service': 'Service', 'engagement': 'Engagement', core.NC: 'No clear cause in the numbers'}
+
+
+# Merchants with no operational problem in the numbers. They are picked and ranked like everyone else (falling volume x value);
+# the playbook follows the engine's likely bucket. The account-manager note is shown as supporting evidence only.
+def nc_short(r):
+    b = str(r.review_likely_bucket)
+    if b.startswith('Likely commercial (renews'): return 'Likely pricing · confirm'
+    if 'commercial or external' in b: return 'Pricing or external · confirm'
+    m = re.match(r'Likely (\w+) \(weak', b)
+    return f'Likely {m.group(1)} (weak) · confirm' if m else 'No clear cause · confirm'
+
+
+def note_says_pricing(r):
+    n = r.get('account_manager_note')
+    nr = stored(P.read_note, n) if isinstance(n, str) else None
+    return bool(nr and nr.get('category') == 'pricing')
+
+
+def nc_basis(r):
+    b = str(r.review_likely_bucket); d = int(r.days_to_contract_renewal); n = r.get('account_manager_note')
+    out = ('Picked because its volume is falling and not recovering, and ranked by value, like every merchant on the list. '
+           'The numbers show no performance, service or engagement problem. ')
+    if b.startswith('Likely commercial (renews'):
+        out += f"The playbook is PB-3 because the contract renews in {d} days, which is PB-3's own trigger in the data pack (renewal within about 60 days). "
+    elif 'commercial or external' in b:
+        out += 'There is no operational signal and renewal is more than 60 days away, so PB-3 is the default: pricing is the most common cause the numbers cannot show. '
+    else:
+        out += f"The playbook follows the strongest weak signal ({b.split('(')[0].replace('Likely', '').strip()}), which is below the line for naming a driver. "
+    if isinstance(n, str):
+        out += (f'The account manager note points the same way: “{n}”. ' if note_says_pricing(r) else f'The account manager note does not mention pricing: “{n}”. ')
+    else:
+        out += 'There is no account manager note. '
+    return out + 'The note is supporting evidence only: it is not used to pick or rank the merchant. A person confirms the cause on the call.'
 
 
 def tier_key(t):
@@ -257,7 +291,10 @@ with tab_work:
     if len(mix):
         c1, c2 = st.columns([3, 2])
         with c1:
-            names = [DRIVER_NAME.get(d, d) + (' (needs a person)' if d == core.NC else '') for d in mix.driver]
+            nc_all = df[df.declining & df.needs_person]
+            nc_name = ('Likely pricing (renewal soon)' if len(nc_all) and nc_all.review_likely_bucket.str.startswith('Likely commercial (renews').all()
+                       else 'No clear cause in the numbers')
+            names = [(nc_name if d == core.NC else DRIVER_NAME.get(d, d)) for d in mix.driver]
             fig = go.Figure(go.Bar(x=mix.merchants, y=names, orientation='h', marker_color=[BLUE if d != core.NC else GREY for d in mix.driver],
                                    text=[f"{m} merchant{'s' if m != 1 else ''} · {rs(v)}/yr" for m, v in zip(mix.merchants, mix.yearly_value_rs)],
                                    textposition='outside', cliponaxis=False, textfont=dict(color=NAVY, size=12),
@@ -273,7 +310,9 @@ with tab_work:
             if (mix.driver == core.NC).any():
                 nc_df = df[df.declining & df.needs_person]
                 soon = int((nc_df.days_to_contract_renewal <= core.PB3_RENEWAL_DAYS).sum())
-                st.markdown(f"""<div class="card" style="font-size:.88rem">{len(nc_df)} merchant{'s' if len(nc_df) != 1 else ''} show{'' if len(nc_df) != 1 else 's'} no operational cause; {soon} renew{'s' if soon == 1 else ''} within 60 days.
+                n_note = sum(note_says_pricing(x) for _, x in nc_df.iterrows())
+                st.markdown(f"""<div class="card" style="font-size:.88rem">{len(nc_df)} merchant{'s' if len(nc_df) != 1 else ''} at risk show{'' if len(nc_df) != 1 else 's'} no operational problem in the numbers.
+                {soon} renew{'s' if soon == 1 else ''} within 60 days (PB-3's trigger), and {n_note} {'have' if n_note != 1 else 'has'} an account manager note about pricing or competitors.
                 Suggested fix: {res['fix_ideas'][core.NC]}</div>""", unsafe_allow_html=True)
 
     # ---- the 15 calls (list) + merchant panel
@@ -302,8 +341,8 @@ with tab_work:
         'ID': calls.merchant_id.values,
         'Size': calls.segment.values,
         'Risk': [TIER_SHORT[tier_key(t)] for t in calls.tier],
-        'Why': [('Unclear (person checks)' if d == core.NC else DRIVER_NAME[d] + (f' + {DRIVER_NAME[s].lower()}' if isinstance(s, str) and s else ''))
-                for d, s in zip(calls.driver_main, calls.driver_second)],
+        'Why': [(nc_short(r) if r.driver_main == core.NC else DRIVER_NAME[r.driver_main] + (f' + {DRIVER_NAME[r.driver_second].lower()}' if isinstance(r.driver_second, str) and r.driver_second else ''))
+                for _, r in calls.iterrows()],
         'Playbook': [pb_label(r) for r in calls.itertuples()],
         'Renews in': [f"{int(x)} d" for x in calls.days_to_contract_renewal],
         'Slot': calls.call_list_status.values,
@@ -334,7 +373,7 @@ with tab_work:
             with st.container(height=36 * (len(tbl) + 1) + 4, border=True):
                 pills = pill(tl, tc) + pill(r.segment, 'grey') + pill(r.call_list_status, 'amber' if r.call_list_status == 'Borderline' else 'green')
                 if r.call_this_week: pills += pill('Call this week', 'red')
-                if r.needs_person: pills += pill('Cause unclear: confirm first', 'amber')
+                if r.needs_person: pills += pill(nc_short(r).replace(' · confirm', ': confirm on the call'), 'amber')
                 st.markdown(f"<div style='font-size:1.15rem;font-weight:650'>{r.get('business_name', mid)}</div>"
                             f"<div class='muted'>{mid} · {r.get('city', '')} · {r.industry} · renews in {int(r.days_to_contract_renewal)} days · "
                             f"with Razorpay {int(r.tenure_months)} months</div>{pills}", unsafe_allow_html=True)
@@ -362,8 +401,7 @@ with tab_work:
                     st.markdown('<div class="tiles">' + ''.join(f'<div class="tile {c}"><div class="label">{l}</div><div class="value">{v}</div></div>' for l, v, c in tiles)
                                 + '</div>', unsafe_allow_html=True)
                     if r.needs_person:
-                        st.markdown(f"<div class='banner'>The numbers show no operational problem, so a person confirms the cause before this playbook runs. "
-                                    f"Hint: {r.review_likely_bucket}.</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='banner'><b>{nc_short(r).replace(' · confirm', '')}.</b> {nc_basis(r)}</div>", unsafe_allow_html=True)
                     pb_html = (f"<div class='pb-id'>{r.playbook_id} {PB[r.playbook_id]['name']}</div><div class='pb-text'>{PB[r.playbook_id]['what_happens']}</div>")
                     if r.playbook_also_id:
                         pb_html += (f"<div class='pb-id'>+ {r.playbook_also_id} {PB[r.playbook_also_id]['name']}</div>"
@@ -531,16 +569,18 @@ with tab_work:
         allm = df.assign(_o=df.revenue_rank.fillna(999), _t=df.tier.map(tier_key)).sort_values(['_o', '_t', 'tpv_change'])
         full = pd.DataFrame({'Rank': allm.revenue_rank.map(lambda x: '' if pd.isna(x) else str(int(x))), 'ID': allm.merchant_id,
                              'Merchant': allm.get('business_name', allm.merchant_id), 'Size': allm.segment, 'Risk': [TIER_SHORT[tier_key(t)] for t in allm.tier],
-                             'Reason': [('Unclear: needs a person' if d == core.NC else DRIVER_NAME[d]) if isinstance(d, str) else w for d, w in zip(allm.driver_main, allm.why_not_flagged)],
+                             'Reason': [(nc_short(r) if r.driver_main == core.NC else DRIVER_NAME[r.driver_main]) if isinstance(r.driver_main, str) else r.why_not_flagged for _, r in allm.iterrows()],
                              'Playbook': [pb_label(r) + ' ' + PB[r.playbook_id]['name'] for r in allm.itertuples()],
                              'Track': np.where(allm.csm_call_list, 'CSM call', np.where(allm.am_alert, 'Account-manager alert', np.where(allm.automated_track, 'Automated digital', 'No outreach')))})
         st.dataframe(full, hide_index=True, width='stretch', height=420)
 
     # ---- needs a person
-    st.markdown('### Needs a person: cause unclear')
-    if len(review): st.caption('The numbers show no performance, service or engagement problem for these declining merchants. Everything to weigh is on each card. '
-               'Each has a suggested playbook (PB-3 by default, because pricing is the most common hidden cause). Confirm the cause after the call and '
-               'the playbook follows. Merchants outside the 15 calls that renew within 60 days go to their account manager, who owns any pricing talk.')
+    all_pricing = len(review) and review.review_likely_bucket.str.startswith('Likely commercial (renews').all()
+    st.markdown('### Likely pricing: a person confirms' if all_pricing else '### Causes the numbers cannot show: a person confirms')
+    if len(review): st.caption('These merchants were picked and ranked like every other: falling volume that is not recovering, times yearly value. The numbers show no '
+               'performance, service or engagement problem. The playbook comes from the renewal date: within 60 days is PB-3\'s own trigger in the data pack, so '
+               'PB-3 Commercial review. The account manager note is shown as supporting evidence; it is never used to pick or rank a merchant. Confirm the cause '
+               'after the call and the playbook follows. Merchants outside the 15 calls that renew within 60 days go to their account manager, who owns any pricing talk.')
     if len(review) == 0:
         st.markdown('<div class="muted">None this month.</div>', unsafe_allow_html=True)
     FAM_NAME = {'performance': 'performance (success rate)', 'service': 'service (tickets, CSAT)', 'engagement': 'engagement (logins, products)'}
@@ -554,7 +594,8 @@ with tab_work:
         where = 'On the call list' if r.csm_call_list else ('Account-manager alert' if r.am_alert else 'Automated track')
         facts = [('Renewal', f"Renews in {int(r.days_to_contract_renewal)} days: " + ("inside PB-3's 60-day window, so a pricing review is due now" if renew_soon
                   else "outside PB-3's 60-day window"), renew_soon),
-                 ('Account manager note', (f"“{note}”" + (f" (AI reads it as {nr['category']})" if nr and nr.get('category') else '')) if isinstance(note, str) else 'None',
+                 ('Account manager note', ((f"“{note}”" + (f" (AI reads it as {nr['category']})" if nr and nr.get('category') else '')) if isinstance(note, str) else 'None')
+                  + ' · supporting evidence only, not used to pick or rank',
                   bool(nr and nr.get('category') == 'pricing')),
                  ('Volume', f"Down {abs(r.tpv_change):.0%} (months 4-6 vs 1-3); projected {r.projected_loss_m9:.0%} below its healthy level by month 9", r.imminent),
                  ('Operational signals', f"Success rate {r.success_rate_m1_m3_pct:.1f}% → {r.success_rate_m4_m6_pct:.1f}% · unresolved tickets {int(r.unresolved_tickets)} of "
@@ -573,7 +614,7 @@ with tab_work:
         with cA:
             rows = ''.join(f"<div class='k'>{k}</div><div class='v{' hot' if hot else ''}'>{v}</div>" for k, v, hot in facts)
             st.markdown(f"<div class='card'><b>{r.get('business_name', r.merchant_id)}</b> <span class='muted'>· {r.merchant_id} · {where}</span><br>"
-                        f"{pill(r.review_likely_bucket, 'blue')}{pill('Suggested: ' + r.playbook, 'grey')}"
+                        f"{pill(nc_short(r).replace(' · confirm', ''), 'blue')}{pill('Suggested: ' + r.playbook, 'grey')}"
                         f"<div class='facts'>{rows}</div>"
                         f"<div class='k' style='margin-top:8px;opacity:.62;font-weight:600;font-size:.88rem'>Ask on the call</div>"
                         f"<ul class='asks'>{''.join(f'<li>{a}</li>' for a in asks)}</ul></div>", unsafe_allow_html=True)
@@ -624,9 +665,9 @@ with tab_work:
         st.markdown(f"""
 1. **Is volume falling and staying down?** We measure how much a merchant's volume normally moves month to month ({S['typical_wobble']:.1%} on this file). A merchant is *declining* if months 4-6 fell more than three of those wobbles below months 1-3 (or month 6 alone fell sharply) and volume did not bounce back. Dips that recover are not flagged; see the *Why not flagged* tab.
 2. **How fast?** The months 4-6 trend is projected to month 9. More than half of healthy volume gone = *imminent fade*, the brief's definition of churn.
-3. **Why?** Three problem scores from the merchant's own signals: performance (success rate), service (unresolved tickets, CSAT), engagement (logins, products). A score more than 1 standard deviation above average names the driver. If none is high, a person confirms the cause. Blank CSAT is never used to name a driver.
-4. **Which playbook?** Always one of the six in the data pack: performance PB-1, service PB-2, engagement PB-4, unclear cause follows the likely bucket (PB-3 when renewal is within 60 days). A second problem adds its playbook. Merchant size sets who runs it.
-5. **Who gets the 15 calls?** Chance of leaving x chance of saving if we call x yearly value, minus Rs 1,500 per call. Both chances are assumptions (the data has no outcomes), so the list is re-run under 11 versions of them; merchants that drop out under some are marked *Borderline*.
+3. **Why?** Three problem scores from the merchant's own signals: performance (success rate), service (unresolved tickets, CSAT), engagement (logins, products). A score more than 1 standard deviation above average names the driver. If none is high, the cause is one the numbers cannot show (most often pricing) and a person confirms it on the call. Blank CSAT is never used to name a driver. Account manager notes are shown as supporting evidence but never decide who is picked, the driver or the rank.
+4. **Which playbook?** Always one of the six in the data pack: performance PB-1, service PB-2, engagement PB-4. With no cause in the numbers: PB-3 Commercial review when renewal is within 60 days (PB-3's own trigger in the data pack), otherwise the strongest weak signal, or PB-3 if there is none. A second problem adds its playbook. Merchant size sets who runs it.
+5. **Who gets the 15 calls?** Chance of leaving x chance of saving if we call x yearly value, minus Rs 1,500 per call. The chance of leaving comes from the data (100% for an imminent fade, 50% for other declines). The chance of saving is an assumption by cause: performance and service 60% (Razorpay can fix them), no cause in the numbers 40%, engagement 30%. The data has no outcomes, so the list is re-run under 11 versions of these assumptions; merchants that drop out under some are marked *Borderline*. Outcome data (which merchants recovered after a call, by cause) would replace these assumptions.
 6. **AI's role:** reading notes, writing the reason line and the drafts, checking translations and answering questions. AI never decides who is flagged, the driver, the playbook or the ranking. Code checks every draft; a person approves every message. AI can be switched off in the sidebar.
 """)
 
