@@ -66,6 +66,8 @@ h3 {color: inherit; margin-top: .6rem;}
 @media (prefers-color-scheme: dark) { .stApp[data-theme="dark"] .kpi, .stApp[data-theme="dark"] .card, .stApp[data-theme="dark"] .tile {background: rgba(255,255,255,.04);} }
 .kpi {padding: 14px 16px 12px 16px; height: 100%; border-top: 4px solid #3395FF; box-shadow: 0 2px 10px rgba(1,38,82,.06);}
 .kpi.accent {border-top-color: #012652;}
+.kpis {display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 14px;}
+.kpi .value {white-space: nowrap;}
 .kpi .label, .tile .label {font-size: .72rem; opacity: .62; text-transform: uppercase; letter-spacing: .05em; font-weight: 600;}
 .kpi .value {font-size: 1.45rem; font-weight: 750; margin-top: 2px; color: #012652;}
 .kpi .sub {font-size: .79rem; opacity: .7; margin-top: 2px;}
@@ -246,9 +248,9 @@ with tab_work:
              (f"Covered by the {len(calls)} call{'s' if len(calls) != 1 else ''}", rs(V['call_list_value']), f"{V['call_list_value'] / V['at_risk_value']:.0%} of revenue at risk" if V['at_risk_value'] else ''),
              ('Expected saving', f"Rs {V['saving_10'] / 1e5:,.1f}-{V['saving_ours'] / 1e5:,.1f}L" if len(calls) else rs(0), 'a range: the save chance is an assumption'),
              (f"Cost of the {len(calls)} call{'s' if len(calls) != 1 else ''}", rs(V['outreach_cost']), f"each call pays off above a {V['break_even_max']:.1%} save chance" if V['outreach_cost'] else '')]
-    for i, (col, (lab, val, sub)) in enumerate(zip(st.columns(5), cards)):
-        col.markdown(f'<div class="kpi{" accent" if i in (0, 3) else ""}"><div class="label">{lab}</div><div class="value">{val}</div><div class="sub">{sub}</div></div>', unsafe_allow_html=True)
-    st.write('')
+    # one CSS grid: five across on a wide screen, wrapping to more rows on a narrow one (no squeezed, broken words)
+    st.markdown('<div class="kpis">' + ''.join(f'<div class="kpi{" accent" if i in (0, 3) else ""}"><div class="label">{lab}</div><div class="value">{val}</div>'
+                                               f'<div class="sub">{sub}</div></div>' for i, (lab, val, sub) in enumerate(cards)) + '</div>', unsafe_allow_html=True)
 
     # ---- driver mix and the fix
     mix = res['driver_mix']
