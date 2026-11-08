@@ -17,6 +17,10 @@ from ai.facts import CHANNEL, internal_facts, languages, merchant_facts
 from ai.llm import MODEL_READ, MODEL_WRITE, ask, ask_json
 from engine.core import NC
 
+SENDER = 'Anoushka'   # the CSM whose name signs the drafts
+SENDER_IN_SCRIPT = {'Hindi': 'अनुष्का', 'Marathi': 'अनुष्का', 'Gujarati': 'અનુષ્કા', 'Bengali': 'অনুষ্কা', 'Tamil': 'அனுஷ்கா',
+                    'Telugu': 'అనుష్క', 'Kannada': 'ಅನುಷ್ಕಾ', 'Malayalam': 'അനുഷ്ക'}   # her name as it is normally spelt in each script
+
 NOTE_CATEGORIES = ['pricing', 'performance', 'service', 'engagement', 'seasonal', 'positive', 'neutral']
 
 SYS_NOTE = ("You classify one short note written by a Razorpay account manager about a merchant. "
@@ -41,14 +45,16 @@ SYS_DRAFT = ("You write a short first message from a Razorpay team member to a m
              "5. Open with the merchant's business name. Say plainly that their account matters to Razorpay. Lead with the problem Razorpay can fix "
              "(the first fact listed), then at most one more fact. If the cause is unclear, write a warm, neutral check-in: ask how things are going and offer "
              "to review whether their current plan still fits their needs, with no diagnosis of any problem.\n"
-             "6. End with one easy ask: a short call, offering two slots written exactly as [option 1] and [option 2]. Sign off as [CSM name] from Razorpay.\n"
+             "6. End with one easy ask: a short call, offering two slots written exactly as [option 1] and [option 2]. Sign off as {sender} from Razorpay.\n"
              "7. Warm, direct, respectful. Write mostly as 'we' (the Razorpay team). No em dashes. {length}\n"
              'Return JSON only: {{"subject": "<email subject, or empty for WhatsApp>", "message": "...", "facts_used": ["F1", ...]}}')
 
 SYS_TRANSLATE = ("Translate this message from a Razorpay team member to a merchant into natural, polite, business {language}, the way a local "
                  "customer success manager would actually write it. Keep the meaning exactly. Write both the subject and the message in {language} script "
-                 "(not in Roman letters). Prefer 'we' over 'I' so the text reads naturally whatever the sender's gender, and never use slashes for alternative word forms. Keep the business name and the placeholders [CSM name], [option 1], [option 2] unchanged, in English. "
-                 "Do not add numbers, promises or new claims. Return exactly one JSON object and nothing else: "
+                 "(not in Roman letters). Prefer 'we' over 'I' so the text reads naturally whatever the sender's gender, and never use slashes for alternative word forms. "
+                 "There must be NO English or Roman letters anywhere: write the business name, the word Razorpay and the sender's name in {language} script as they sound, "
+                 "and write the two time placeholders [option 1] and [option 2] as short bracketed {language} words meaning 'first time option' and 'second time option', "
+                 "with no digits. Do not add numbers, promises or new claims. Return exactly one JSON object and nothing else: "
                  '{{"subject": "...", "message": "..."}}')
 
 SYS_BACK = ("Translate this {language} text into plain English, word for word as far as possible. Do not improve or correct it. "
@@ -113,7 +119,7 @@ def _fact_text(facts):
     return '\n'.join(f"{f['id']} ({f['topic']}): {f['text']}" for f in facts) or '(no specific facts: write a neutral check-in)'
 
 
-def draft_for(row, retry_feedback=None, progress=None):
+def draft_for(row, retry_feedback=None, progress=None, sender=SENDER):
     """English draft, regional version, translation check, independent claim check and code guardrails."""
     facts = merchant_facts(row)
     main_lang, alt_lang = languages(row)
@@ -126,7 +132,7 @@ def draft_for(row, retry_feedback=None, progress=None):
         user += f"\n\nYour previous draft broke these rules, fix them: {retry_feedback}"
     say = progress or (lambda m: None)
     say('Writing the English message' + (' again, fixing what the checks found' if retry_feedback else ''))
-    en = ask_json(SYS_DRAFT.format(length=_length(channel)), user, max_tokens=500)
+    en = ask_json(SYS_DRAFT.format(length=_length(channel), sender=sender), user, max_tokens=500)
     if en is None:
         return None
     result = {'merchant_id': row['merchant_id'], 'channel': channel, 'main_language': main_lang, 'alt_language': alt_lang,
@@ -134,7 +140,11 @@ def draft_for(row, retry_feedback=None, progress=None):
     reg = back = same = None
     if regional:
         say(f'Writing the {regional} version')
-        reg = ask_json(SYS_TRANSLATE.format(language=regional), json.dumps({'subject': en.get('subject', ''), 'message': en.get('message', '')}, ensure_ascii=False), max_tokens=900)
+        t_in = json.dumps({'subject': en.get('subject', ''), 'message': en.get('message', ''),
+                           'sender_name_spelt_in_this_script': SENDER_IN_SCRIPT.get(regional, sender) if sender == SENDER else sender}, ensure_ascii=False)
+        if retry_feedback:
+            t_in += f"\n\nThe previous version broke these rules, fix them: {retry_feedback}"
+        reg = ask_json(SYS_TRANSLATE.format(language=regional), t_in, max_tokens=900)
         if reg and 'message' in reg:
             say(f'Translating the {regional} version back to English to check it')
             back = ask(SYS_BACK.format(language=regional), (reg.get('subject', '') + '\n' + reg['message']).strip(), max_tokens=600)
@@ -150,7 +160,10 @@ def draft_for(row, retry_feedback=None, progress=None):
     if regional:
         checks.append((f'{regional} draft produced and translated back for checking', bool(reg and 'message' in reg and back), ''))
     if reg and 'message' in reg:
-        checks.append(('No numbers in the regional draft itself', not G.has_digits(reg['message'].replace('[option 1]', '').replace('[option 2]', '')), ''))
+        reg_text = (reg.get('subject', '') + '\n' + reg['message'])
+        checks.append((f'No numbers in the {regional} draft itself', not G.has_digits(reg_text), ''))
+        latin = sorted(set(G.re.findall(r'[A-Za-z][A-Za-z.\'-]*', reg_text)))
+        checks.append((f'{regional} draft has no English words in it', not latin, ', '.join(latin[:8])))
     result['checks'] = checks
     result['passed'] = G.passed(checks)
     return result
@@ -193,4 +206,4 @@ def template_draft(row):
     else:
         body = (f"Hi {name} team, your account matters to us at Razorpay. I'd like to make sure you're getting full value from your account "
                 "and that we have the right contact on your side.")
-    return body + " Could we set up a short call at [option 1] or [option 2]? [CSM name], Razorpay"
+    return body + f" Could we set up a short call at [option 1] or [option 2]? {SENDER}, Razorpay"

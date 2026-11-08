@@ -27,10 +27,10 @@ TIMELINES = [r'\bwithin\b', r'\b(by|before) (monday|tuesday|wednesday|thursday|f
              r'will (be )?(fixed|resolved|closed|sorted|done) (by|in|within)', r'\bclosure date']
 INTERNAL = [r'churn', r'\brisk', r'at-risk', r'\bscore', r'\btier', r'\bflag', r'\bleav(e|ing)\b', r'\bswitch', r'moving (your )?(business|volume|payments)',
             r'\bvolume', r'\btpv\b', r'drop in (your )?(business|sales|revenue)', r'\bsales\b', r'\brevenue', r'competitor', r'other provider',
-            r'\bnote', r'our (records|systems?) show', r'\bmodel\b', r'\banalytics?\b',
+            r'(account manager|internal|our|account) notes?\b', r'\bnotes? (say|says|show|shows|suggest|mention)', r'our (records|systems?) show', r'\bmodel\b', r'\banalytics?\b',
             r'payu', r'cashfree', r'paytm', r'phonepe', r'stripe', r'ccavenue', r'juspay', r'instamojo', r'billdesk', r'easebuzz', r'pine ?labs']
 DIAGNOSIS = TOPIC_WORDS['performance'] + TOPIC_WORDS['service'] + [r'dashboard', r'log ?in']
-ALLOWED_PLACEHOLDERS = {'[CSM name]', '[option 1]', '[option 2]', '[Account manager name]'}
+ALLOWED_PLACEHOLDERS = {'[option 1]', '[option 2]'}
 
 
 def _find(patterns, text):

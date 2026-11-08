@@ -64,6 +64,11 @@ h3 {color: inherit; margin-top: .6rem;}
 .pb-id {font-weight: 750; color: #0B5ED7;} .pb-text {font-size: .86rem; opacity: .82; margin: 2px 0 6px 0;}
 .banner {border-left: 4px solid #F59E0B; background: rgba(245,158,11,.09); padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; font-size: .9rem;}
 .check-ok {color: #11804A; font-weight: 700;} .check-bad {color: #C2262E; font-weight: 700;}
+.done {border-left: 4px solid #11804A; background: rgba(17,128,74,.07); padding: 10px 12px; border-radius: 8px; margin-bottom: 8px;}
+.skipped {border-left: 4px solid #98A2B3; background: rgba(128,128,128,.08); padding: 10px 12px; border-radius: 8px; margin-bottom: 8px;}
+.facts {display: grid; grid-template-columns: 150px 1fr; gap: 5px 12px; font-size: .88rem; margin-top: 8px;}
+.facts .k {opacity: .62; font-weight: 600;} .facts .v.hot {color: #9A5B00; font-weight: 650;}
+.asks {margin: 6px 0 0 0; padding-left: 18px; font-size: .88rem;}
 section[data-testid="stSidebar"] > div {background: linear-gradient(180deg, #EAF3FF 0%, #F7FAFF 40%);}
 .side-brand {font-weight: 750; color: #012652; font-size: 1.05rem;}
 div[data-testid="stTabs"] button[aria-selected="true"] p {color: #0B5ED7; font-weight: 650;}
@@ -127,7 +132,7 @@ with st.sidebar:
     status_box = st.empty()
     if up is not None and st.button('Back to the data pack', width='stretch'):
         ss.up_key += 1; st.rerun()
-    ss.csm = st.text_input('Your name (for the approval log)', value=ss.get('csm', ''), placeholder='e.g. Anu')
+    ss.csm = st.text_input('Your name (signs the drafts and the log)', value=ss.get('csm', 'Anoushka'), placeholder='e.g. Anoushka')
     st.divider()
     ai_on = st.toggle('AI on (Claude)', value=ss.get('ai_on', llm.has_key()), disabled=not llm.has_key(), key='ai_on',
                       help='On: you can ask Claude to write new drafts and answer new questions (only when you click). '
@@ -245,9 +250,15 @@ with tab_work:
     st.caption('Ranked by chance of leaving x chance of saving x yearly value. Borderline = drops out of the 15 under some reasonable assumptions, '
                'so the CSM lead decides those slots. Click a row to open the merchant.')
 
+    STATUS_LABEL = {'Approved': '✓ Approved', 'Not this month': '✗ Not this month', 'Writing it myself': '✎ Rewriting'}
+
     def status_of(mid):
         d = ss.decisions.get((file_id, mid))
-        return d['status'] if d else 'Pending'
+        return STATUS_LABEL.get(d['status'], d['status']) if d else 'To review'
+    n_ok = sum(1 for m in calls.merchant_id if (ss.decisions.get((file_id, m)) or {}).get('status') == 'Approved')
+    n_skip = sum(1 for m in calls.merchant_id if (ss.decisions.get((file_id, m)) or {}).get('status') == 'Not this month')
+    st.progress((n_ok + n_skip) / max(len(calls), 1),
+                text=f"**{n_ok} approved** and in the outbox · {n_skip} not contacted this month · {len(calls) - n_ok - n_skip} still to review")
     tbl = pd.DataFrame({
         '#': calls.revenue_rank.astype(int).values,
         'Merchant': calls.get('business_name', calls.merchant_id).values,
@@ -353,29 +364,64 @@ with tab_work:
                     ch = CHANNEL[r.segment]
                     st.caption(f"{ch[0].upper() + ch[1:]}. Language guessed from the city ({r.get('city', '')}): confirm with the merchant."
                                + (' Enterprise: English first.' if r.segment == 'Enterprise' else ''))
-                    if not ok:
-                        st.error('Blocked by the guardrails after one retry. Write this one yourself, or fix the text below before approving.')
-                    lang = st.radio('Version', list(drafts), horizontal=True, key=f'lang-{file_id}-{mid}', label_visibility='collapsed')
-                    subj, body = drafts[lang]
-                    original = (f'Subject: {subj}\n\n' if subj else '') + body
-                    edited = st.text_area('Message', value=original, height=250, key=f'txt-{file_id}-{mid}-{lang}', label_visibility='collapsed')
-                    if checks:
-                        n_ok = sum(1 for _, okk, _ in checks if okk)
-                        with st.expander(f"{'✓' if ok else '✗'} Guardrails: {n_ok} of {len(checks)} checks passed"):
-                            for name, okk, det in checks:
-                                st.markdown(f"<span class='{'check-ok' if okk else 'check-bad'}'>{'✓' if okk else '✗'}</span> {name}{' · ' + det if det else ''}",
-                                            unsafe_allow_html=True)
-                    b1, b2, b3 = st.columns(3)
-                    if b1.button('Approve', type='primary', key=f'ap-{file_id}-{mid}', width='stretch'):
-                        ss.decisions[key] = {'status': 'Approved', 'language': lang, 'text': edited, 'edited': edited.strip() != original.strip()}
-                        log('Approved', mid, f"{lang}{' (edited)' if ss.decisions[key]['edited'] else ''}"); st.rerun()
-                    if b2.button('Reject', key=f'rj-{file_id}-{mid}', width='stretch'):
-                        ss.decisions[key] = {'status': 'Rejected', 'language': lang, 'text': '', 'edited': False}
-                        log('Rejected', mid, lang); st.rerun()
-                    if b3.button('Reset', key=f'rs-{file_id}-{mid}', width='stretch'):
-                        ss.decisions.pop(key, None); log('Reset', mid); st.rerun()
-                    st.caption(('Tip: add your name in the sidebar so the log shows who approved. ' if not ss.csm else '')
-                               + f"Status: {ss.decisions[key]['status'] if key in ss.decisions else 'to review'}. Every decision is logged.")
+                    dec = ss.decisions.get(key)
+                    if dec and dec['status'] == 'Approved':
+                        st.markdown(f"<div class='done'><b>✓ Approved</b> by {dec['by']} at {dec['time']} · {dec['language']}"
+                                    f"{' · edited before approving' if dec['edited'] else ''}<br><span class='muted'>It is in the Outbox at the bottom of the page. "
+                                    "Copy it with the icon on the message and send it from email or WhatsApp.</span></div>", unsafe_allow_html=True)
+                        st.code(dec['text'], language=None, wrap_lines=True)
+                        if '[' in dec['text']:
+                            st.warning('Fill in the two time options in [ ] before you send it.')
+                        if st.button('Undo approval', key=f'undo-{file_id}-{mid}'):
+                            ss.decisions.pop(key); log('Approval undone', mid); st.toast(f'Approval undone: {r.get("business_name", mid)} is back to review.'); st.rerun()
+                    elif dec and dec['status'] == 'Not this month':
+                        nxt = df[df.declining & (df.revenue_rank > len(calls))].sort_values('revenue_rank').head(1)
+                        nxt_txt = (f"Slot freed. Next in line: <b>{nxt.iloc[0].get('business_name', nxt.iloc[0].merchant_id)}</b> "
+                                   f"({nxt.iloc[0].merchant_id}, rank {int(nxt.iloc[0].revenue_rank)})." if len(nxt) else 'Slot freed.')
+                        st.markdown(f"<div class='skipped'><b>✗ Not contacting this month</b> · decided by {dec['by']} at {dec['time']}<br>"
+                                    f"Reason: {dec['reason']}<br><span class='muted'>{nxt_txt}</span></div>", unsafe_allow_html=True)
+                        if st.button('Undo', key=f'undo-{file_id}-{mid}'):
+                            ss.decisions.pop(key); log('Rejection undone', mid); st.rerun()
+                    else:
+                        if dec and dec['status'] == 'Writing it myself':
+                            st.markdown(f"<div class='banner'>You chose to rewrite this message ({dec['reason'].lower()}). Edit it below, then approve it.</div>",
+                                        unsafe_allow_html=True)
+                        elif not ok:
+                            st.error('The safety checks blocked this draft after one retry. Rewrite it below, then approve it.')
+                        lang = st.radio('Version', list(drafts), horizontal=True, key=f'lang-{file_id}-{mid}', label_visibility='collapsed')
+                        subj, body = drafts[lang]
+                        original = (f'Subject: {subj}\n\n' if subj else '') + body
+                        edited = st.text_area('Message (edit if you like)', value=original, height=230, key=f'txt-{file_id}-{mid}-{lang}')
+                        if checks:
+                            n_pass = sum(1 for _, okk, _ in checks if okk)
+                            with st.expander(f"{'✓' if ok else '✗'} Safety checks: {n_pass} of {len(checks)} passed"):
+                                for name, okk, det in checks:
+                                    st.markdown(f"<span class='{'check-ok' if okk else 'check-bad'}'>{'✓' if okk else '✗'}</span> {name}{' · ' + det if det else ''}",
+                                                unsafe_allow_html=True)
+                        rj_key = f'rj-open-{file_id}-{mid}'
+                        b1, b2 = st.columns(2)
+                        if b1.button('✓ Approve and add to outbox', type='primary', key=f'ap-{file_id}-{mid}', width='stretch'):
+                            ss.decisions[key] = {'status': 'Approved', 'language': lang, 'text': edited, 'edited': edited.strip() != original.strip(),
+                                                 'by': ss.csm or 'name not given', 'time': dt.datetime.now().strftime('%H:%M'), 'reason': ''}
+                            log('Approved', mid, f"{lang}{' (edited)' if ss.decisions[key]['edited'] else ''}")
+                            st.toast(f'Approved: {r.get("business_name", mid)} is in the outbox.', icon='✅'); st.rerun()
+                        if b2.button('✗ Reject...', key=f'rj-{file_id}-{mid}', width='stretch'):
+                            ss[rj_key] = not ss.get(rj_key, False)
+                        if ss.get(rj_key):
+                            with st.container(border=True):
+                                why = st.radio('Why are you rejecting this draft?', ['The cause or playbook looks wrong', 'The wording or tone is not right',
+                                               'This merchant was already contacted', 'Not worth a call this month', 'Other'], key=f'rjwhy-{file_id}-{mid}')
+                                nxt_step = st.radio('What happens next?', ['I will rewrite the message myself (it stays on the list)',
+                                                    'Do not contact this merchant this month (frees the slot)'], key=f'rjnext-{file_id}-{mid}')
+                                c1, c2 = st.columns(2)
+                                if c1.button('Confirm', type='primary', key=f'rjok-{file_id}-{mid}', width='stretch'):
+                                    status = 'Writing it myself' if nxt_step.startswith('I will') else 'Not this month'
+                                    ss.decisions[key] = {'status': status, 'language': lang, 'text': '', 'edited': False, 'reason': why,
+                                                         'by': ss.csm or 'name not given', 'time': dt.datetime.now().strftime('%H:%M')}
+                                    ss[rj_key] = False; log('Rejected: ' + status.lower(), mid, why); st.rerun()
+                                if c2.button('Cancel', key=f'rjno-{file_id}-{mid}', width='stretch'):
+                                    ss[rj_key] = False; st.rerun()
+                        st.caption(f"Approving puts the message in the Outbox for you to send. The app never sends anything itself. Signed as {ss.csm or 'the CSM'}.")
 
                 with t_trend:
                     months = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']
@@ -428,43 +474,87 @@ with tab_work:
 
     # ---- needs a person
     st.markdown('### Needs a person: cause unclear')
-    st.caption('The numbers show no performance, service or engagement problem for these declining merchants. Each gets a suggested playbook from the likely bucket '
-               '(PB-3 by default, because pricing is the most common hidden cause), and a person confirms the cause before it runs. Merchants outside the 15 calls that renew within 60 days are alerted to their account manager, '
-               'who owns any pricing conversation; the AI never offers terms.')
+    st.caption('The numbers show no performance, service or engagement problem for these declining merchants. Everything to weigh is on each card. '
+               'Each has a suggested playbook (PB-3 by default, because pricing is the most common hidden cause). Confirm the cause after the call and '
+               'the playbook follows. Merchants outside the 15 calls that renew within 60 days go to their account manager, who owns any pricing talk.')
     if len(review) == 0:
         st.markdown('<div class="muted">None this month.</div>', unsafe_allow_html=True)
+    FAM_NAME = {'performance': 'performance (success rate)', 'service': 'service (tickets, CSAT)', 'engagement': 'engagement (logins, products)'}
     for _, r in review.iterrows():
         note = r.get('account_manager_note'); nr = stored(P.read_note, note) if isinstance(note, str) else None
-        cA, cB = st.columns([3, 2])
+        scores = {k: r[f'fam_{k}'] for k in ['performance', 'service', 'engagement']}
+        top_fam = max(scores, key=scores.get)
+        seasonal = any(x in str(r.industry) for x in core.SEASONAL_INDUSTRIES)
+        renew_soon = r.days_to_contract_renewal <= core.PB3_RENEWAL_DAYS
+        csat = '–' if pd.isna(r.last_csat_1_to_5) else f'{r.last_csat_1_to_5:.0f}/5'
+        where = 'On the call list' if r.csm_call_list else ('Account-manager alert' if r.am_alert else 'Automated track')
+        facts = [('Renewal', f"Renews in {int(r.days_to_contract_renewal)} days: " + ("inside PB-3's 60-day window, so a pricing review is due now" if renew_soon
+                  else "outside PB-3's 60-day window"), renew_soon),
+                 ('Account manager note', (f"“{note}”" + (f" (AI reads it as {nr['category']})" if nr and nr.get('category') else '')) if isinstance(note, str) else 'None',
+                  bool(nr and nr.get('category') == 'pricing')),
+                 ('Volume', f"Down {abs(r.tpv_change):.0%} (months 4-6 vs 1-3); projected {r.projected_loss_m9:.0%} below its healthy level by month 9", r.imminent),
+                 ('Operational signals', f"Success rate {r.success_rate_m1_m3_pct:.1f}% → {r.success_rate_m4_m6_pct:.1f}% · unresolved tickets {int(r.unresolved_tickets)} of "
+                  f"{int(r.support_tickets_last_90d)} · CSAT {csat} · logins (30 days) {int(r.logins_last_30d)} · products {int(r.products_used)}. "
+                  f"None is high enough to name a cause; the strongest is {FAM_NAME[top_fam]} ({scores[top_fam]:+.1f} SD).", False),
+                 ('Seasonality', f"{r.industry} is a seasonal industry: compare with last year's pattern before acting" if seasonal else f"{r.industry} is not a seasonal industry", seasonal),
+                 ('At stake', f"{rs(r.yearly_value_rs)} a year · {r.segment} merchant · with Razorpay {int(r.tenure_months)} months", False)]
+        asks = ['Has anything changed in how you take payments, or in who manages the account?']
+        if renew_soon or (nr and nr.get('category') == 'pricing'):
+            asks.insert(0, 'Are you reviewing pricing or comparing providers ahead of renewal?')
+        if seasonal:
+            asks.append('Is this dip part of your usual seasonal pattern?')
+        asks.append({'performance': 'Have your customers mentioned failed payments?', 'service': 'Is anything still open with our support team?',
+                     'engagement': 'Is the dashboard still giving your team what it needs?'}[top_fam])
+        cA, cB = st.columns([3, 1.3])
         with cA:
-            where = 'On the call list' if r.csm_call_list else ('Account-manager alert' if r.am_alert else 'Automated track')
-            st.markdown(f"<div class='card'><b>{r.get('business_name', r.merchant_id)}</b> <span class='muted'>· {r.merchant_id} · {r.segment} · renews in {int(r.days_to_contract_renewal)} days · {where}</span><br>"
+            rows = ''.join(f"<div class='k'>{k}</div><div class='v{' hot' if hot else ''}'>{v}</div>" for k, v, hot in facts)
+            st.markdown(f"<div class='card'><b>{r.get('business_name', r.merchant_id)}</b> <span class='muted'>· {r.merchant_id} · {where}</span><br>"
                         f"{pill(r.review_likely_bucket, 'blue')}{pill('Suggested: ' + r.playbook, 'grey')}"
-                        f"{pill('Note reads as ' + nr['category'], 'purple') if nr and nr.get('category') else ''}"
-                        f"<div class='muted' style='margin-top:6px'>{'Note: “' + note + '”' if isinstance(note, str) else 'No account manager note'}</div></div>", unsafe_allow_html=True)
+                        f"<div class='facts'>{rows}</div>"
+                        f"<div class='k' style='margin-top:8px;opacity:.62;font-weight:600;font-size:.88rem'>Ask on the call</div>"
+                        f"<ul class='asks'>{''.join(f'<li>{a}</li>' for a in asks)}</ul></div>", unsafe_allow_html=True)
         with cB:
             opts = ['Not confirmed yet', 'Pricing / commercial: PB-3', 'Performance: PB-1', 'Service: PB-2', 'Engagement: PB-4', 'Other or external: PB-6']
             prev_choice = ss.review_decisions.get((file_id, r.merchant_id), opts[0])
-            choice = st.selectbox('Confirmed cause and playbook', opts, index=opts.index(prev_choice), key=f'rv-{file_id}-{r.merchant_id}')
+            choice = st.selectbox('After the call, confirm the cause', opts, index=opts.index(prev_choice), key=f'rv-{file_id}-{r.merchant_id}')
             if choice != prev_choice:
                 ss.review_decisions[(file_id, r.merchant_id)] = choice; log('Cause confirmed', r.merchant_id, choice)
+                st.toast(f"Confirmed for {r.get('business_name', r.merchant_id)}: {choice}", icon='✅')
+            if choice != opts[0]:
+                st.markdown(f"<div class='done' style='font-size:.86rem'>✓ Confirmed: <b>{choice}</b><br><span class='muted'>by {ss.csm or 'name not given'}; "
+                            "logged</span></div>", unsafe_allow_html=True)
+            else:
+                st.caption('Pick the cause once you have spoken to the merchant. The playbook then follows from it.')
 
-    # ---- export and log
-    st.markdown('### Export and approval log')
+    # ---- outbox, exports and log
+    st.markdown('### Outbox: approved messages ready to send')
+    approved = [(m, v) for (f, m), v in ss.decisions.items() if f == file_id and v['status'] == 'Approved']
+    if not approved:
+        st.markdown("<div class='muted'>Nothing approved yet. Open a merchant in the call list, check the message and click <b>Approve and add to outbox</b>.</div>",
+                    unsafe_allow_html=True)
+    for m, v in approved:
+        rr = by_id.loc[m]
+        with st.expander(f"✓ {rr.get('business_name', m)} · {CHANNEL[rr.segment]} · {v['language']} · approved by {v['by']} at {v['time']}"):
+            st.code(v['text'], language=None, wrap_lines=True)
+    skipped = [(m, v) for (f, m), v in ss.decisions.items() if f == file_id and v['status'] == 'Not this month']
+    if skipped:
+        st.markdown('<div class="muted">Not contacting this month: ' + '; '.join(f"{by_id.loc[m].get('business_name', m)} ({v['reason'].lower()})" for m, v in skipped)
+                    + '</div>', unsafe_allow_html=True)
     e1, e2, e3 = st.columns(3)
     appr = [{'merchant_id': m, 'business_name': by_id.loc[m].get('business_name', m), 'channel': CHANNEL[by_id.loc[m].segment],
-             'language': v['language'], 'edited_by_csm': v['edited'], 'message': v['text']}
-            for (f, m), v in ss.decisions.items() if f == file_id and v['status'] == 'Approved']
-    e1.download_button(f'Approved messages ({len(appr)})', pd.DataFrame(appr).to_csv(index=False).encode('utf-8-sig') if appr else b'',
+             'language': v['language'], 'approved_by': v['by'], 'edited_by_csm': v['edited'], 'message': v['text']} for m, v in approved]
+    e1.download_button(f'Download approved messages ({len(appr)})', pd.DataFrame(appr).to_csv(index=False).encode('utf-8-sig') if appr else b'',
                        file_name='approved_messages.csv', disabled=not appr, width='stretch')
     out_cols = ['merchant_id', 'segment', 'industry', 'tier', 'driver_main', 'driver_second', 'review_likely_bucket', 'needs_person', 'playbook_id', 'playbook_also_id', 'playbook', 'playbook_also',
                 'delivery', 'revenue_rank', 'call_list_status', 'call_this_week', 'am_alert', 'automated_track', 'expected_saving_rs', 'why_not_flagged']
     ranked = df.assign(_o=df.revenue_rank.fillna(999)).sort_values(['_o', 'tier'])[[c for c in out_cols if c in df]]
-    e2.download_button('Ranked list of all merchants', ranked.to_csv(index=False).encode('utf-8-sig'), file_name='ranked_merchants.csv', width='stretch')
-    e3.download_button(f'Approval log ({len(ss.audit)} entries)', pd.DataFrame(ss.audit).to_csv(index=False).encode('utf-8-sig') if ss.audit else b'',
-                       file_name='approval_log.csv', disabled=not ss.audit, width='stretch')
+    e2.download_button('Download ranked list of all merchants', ranked.to_csv(index=False).encode('utf-8-sig'), file_name='ranked_merchants.csv', width='stretch')
+    e3.download_button(f'Download decision log ({len(ss.audit)} entries)', pd.DataFrame(ss.audit).to_csv(index=False).encode('utf-8-sig') if ss.audit else b'',
+                       file_name='decision_log.csv', disabled=not ss.audit, width='stretch')
     if ss.audit:
-        st.dataframe(pd.DataFrame(ss.audit).iloc[::-1], hide_index=True, width='stretch', height=200)
+        with st.expander(f'Decision log: who did what ({len(ss.audit)} entries)'):
+            st.dataframe(pd.DataFrame(ss.audit).iloc[::-1], hide_index=True, width='stretch', height=220)
+
 
     with st.expander('How the ranking works'):
         st.markdown(f"""
