@@ -29,28 +29,44 @@ from engine import core
 st.set_page_config(page_title='Merchant Retention Workbench', page_icon='📉', layout='wide')
 
 # ------------------------------------------------------------------ style (works in light and dark themes)
+NAVY, BLUE, BLUE_SOFT, GREY = '#012652', '#3395FF', '#EAF3FF', '#98A2B3'   # Razorpay brand navy and blue
 st.markdown("""
 <style>
-.block-container {padding-top: 1.4rem; padding-bottom: 2rem; max-width: 1440px;}
-h1, h2, h3, h4 {letter-spacing: -0.01em;}
-.kpi, .card, .tile {border: 1px solid rgba(128,128,128,.25); border-radius: 12px; background: rgba(128,128,128,.05); color: inherit;}
-.kpi {padding: 14px 16px; height: 100%;}
-.kpi .label, .tile .label {font-size: .74rem; opacity: .65; text-transform: uppercase; letter-spacing: .04em;}
-.kpi .value {font-size: 1.32rem; font-weight: 650; margin-top: 2px;}
-.kpi .sub {font-size: .8rem; opacity: .7; margin-top: 2px;}
-.card {padding: 12px 14px; margin-bottom: 10px;}
+.block-container {padding-top: 1.1rem; padding-bottom: 2rem; max-width: 1440px;}
+h1, h2, h3, h4 {letter-spacing: -0.015em;}
+h3 {color: inherit; margin-top: .6rem;}
+.hero {background: linear-gradient(120deg, #012652 0%, #06397A 55%, #3395FF 130%); color: #fff; border-radius: 16px; padding: 22px 26px 18px 26px; margin-bottom: 14px;
+       box-shadow: 0 6px 24px rgba(1,38,82,.18);}
+.hero .eyebrow {font-size: .74rem; letter-spacing: .12em; text-transform: uppercase; opacity: .75;}
+.hero .title {font-size: 1.85rem; font-weight: 750; margin: 2px 0 4px 0; letter-spacing: -0.02em;}
+.hero .sub {font-size: .92rem; opacity: .85;}
+.hero .chip {display: inline-block; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.22); border-radius: 999px; padding: 3px 11px;
+             font-size: .78rem; margin: 10px 6px 0 0;}
+.kpi, .card, .tile {border: 1px solid rgba(128,128,128,.22); border-radius: 14px; background: rgba(255,255,255,.72); color: inherit;}
+@media (prefers-color-scheme: dark) { .stApp[data-theme="dark"] .kpi, .stApp[data-theme="dark"] .card, .stApp[data-theme="dark"] .tile {background: rgba(255,255,255,.04);} }
+.kpi {padding: 14px 16px 12px 16px; height: 100%; border-top: 4px solid #3395FF; box-shadow: 0 2px 10px rgba(1,38,82,.06);}
+.kpi.accent {border-top-color: #012652;}
+.kpi .label, .tile .label {font-size: .72rem; opacity: .62; text-transform: uppercase; letter-spacing: .05em; font-weight: 600;}
+.kpi .value {font-size: 1.45rem; font-weight: 750; margin-top: 2px; color: #012652;}
+.kpi .sub {font-size: .79rem; opacity: .7; margin-top: 2px;}
+.card {padding: 12px 14px; margin-bottom: 10px; box-shadow: 0 1px 6px rgba(1,38,82,.05);}
+.card.fix {border-left: 4px solid #3395FF;}
 .tiles {display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 6px 0 10px 0;}
 .tile {padding: 8px 10px;}
-.tile .value {font-size: 1.02rem; font-weight: 650; margin-top: 1px;}
-.tile.flag {border-color: rgba(180,35,24,.55); background: rgba(180,35,24,.07);}
-.tile.warn {border-color: rgba(154,91,0,.5); background: rgba(154,91,0,.07);}
-.pill {display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .74rem; font-weight: 600; margin: 0 4px 4px 0;}
-.p-red {background: #FDECEC; color: #B42318;} .p-amber {background: #FEF3E2; color: #9A5B00;} .p-blue {background: #E8F0FE; color: #1A4FB8;}
-.p-grey {background: #EEF0F3; color: #475467;} .p-green {background: #E7F6EC; color: #1E7B3A;} .p-purple {background: #F1EAFE; color: #5B2DB3;}
+.tile .value {font-size: 1.02rem; font-weight: 700; margin-top: 1px;}
+.tile.flag {border-color: rgba(229,72,77,.55); background: rgba(229,72,77,.07);}
+.tile.warn {border-color: rgba(245,158,11,.6); background: rgba(245,158,11,.08);}
+.pill {display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .74rem; font-weight: 650; margin: 0 4px 4px 0;}
+.p-red {background: #FDECEC; color: #C2262E;} .p-amber {background: #FFF4E0; color: #9A5B00;} .p-blue {background: #EAF3FF; color: #0B5ED7;}
+.p-grey {background: #EEF1F5; color: #475467;} .p-green {background: #E6F7EE; color: #11804A;} .p-purple {background: #F1EAFE; color: #5B2DB3;}
+.p-navy {background: #012652; color: #fff;}
 .muted {opacity: .68; font-size: .86rem;}
-.pb-id {font-weight: 700;} .pb-text {font-size: .86rem; opacity: .8; margin: 2px 0 6px 0;}
-.banner {border-left: 4px solid #9A5B00; background: rgba(154,91,0,.08); padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; font-size: .9rem;}
-.check-ok {color: #1E7B3A;} .check-bad {color: #B42318;}
+.pb-id {font-weight: 750; color: #0B5ED7;} .pb-text {font-size: .86rem; opacity: .82; margin: 2px 0 6px 0;}
+.banner {border-left: 4px solid #F59E0B; background: rgba(245,158,11,.09); padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; font-size: .9rem;}
+.check-ok {color: #11804A; font-weight: 700;} .check-bad {color: #C2262E; font-weight: 700;}
+section[data-testid="stSidebar"] > div {background: linear-gradient(180deg, #EAF3FF 0%, #F7FAFF 40%);}
+.side-brand {font-weight: 750; color: #012652; font-size: 1.05rem;}
+div[data-testid="stTabs"] button[aria-selected="true"] p {color: #0B5ED7; font-weight: 650;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -88,8 +104,8 @@ def run_engine(file_bytes: bytes, name: str):
 
 ss = st.session_state
 with st.sidebar:
-    st.markdown('### Merchant Retention Workbench')
-    st.caption('Problem 2: churn early-warning and proactive outreach')
+    st.markdown("<div class='side-brand'>Merchant Retention Workbench</div>", unsafe_allow_html=True)
+    st.caption('Razorpay Campus AI Build-a-thon · Problem 2: churn early-warning and proactive outreach')
     up = st.file_uploader('Merchant file (data pack .xlsx, or .csv with the same columns)', type=['xlsx', 'csv'])
     if up is not None:
         file_bytes, file_name = up.getvalue(), up.name
@@ -164,10 +180,12 @@ def pb_label(r):
 
 
 # ------------------------------------------------------------------ header
-st.markdown('## Merchant Retention Workbench')
-st.markdown(f'<span class="muted">{S["merchants"]} merchants scored from <b>{file_name}</b> · month-6 snapshot · '
-            f'typical monthly wobble {S["typical_wobble"]:.1%}, so a decline means a drop beyond {abs(S["decline_line"]):.1%} that does not bounce back</span>',
-            unsafe_allow_html=True)
+st.markdown(f"""<div class="hero"><div class="eyebrow">Customer success · Churn early-warning</div>
+<div class="title">Merchant Retention Workbench</div>
+<div class="sub">Find merchants whose payment volume is falling and not coming back, see why, and send the right first message to the 15 that matter most.</div>
+<span class="chip">{S['merchants']} merchants · {file_name}</span><span class="chip">Month-6 snapshot</span>
+<span class="chip">Decline = drop beyond {abs(S['decline_line']):.1%} that does not bounce back</span>
+<span class="chip">AI {'on' if llm.live() else 'off'}</span></div>""", unsafe_allow_html=True)
 tab_work, tab_why = st.tabs(['Workbench', 'Why not flagged'])
 
 # ================================================================== WORKBENCH
@@ -178,8 +196,8 @@ with tab_work:
              ('Covered by the 15 calls', rs(V['call_list_value']), f"{V['call_list_value'] / V['at_risk_value']:.0%} of revenue at risk" if V['at_risk_value'] else ''),
              ('Expected saving', f"Rs {V['saving_10'] / 1e5:,.1f}-{V['saving_ours'] / 1e5:,.1f}L", 'a range: the save chance is an assumption'),
              ('Cost of the 15 calls', rs(V['outreach_cost']), f"each call pays off above a {V['break_even_max']:.1%} save chance" if V['outreach_cost'] else '')]
-    for col, (lab, val, sub) in zip(st.columns(5), cards):
-        col.markdown(f'<div class="kpi"><div class="label">{lab}</div><div class="value">{val}</div><div class="sub">{sub}</div></div>', unsafe_allow_html=True)
+    for i, (col, (lab, val, sub)) in enumerate(zip(st.columns(5), cards)):
+        col.markdown(f'<div class="kpi{" accent" if i in (0, 3) else ""}"><div class="label">{lab}</div><div class="value">{val}</div><div class="sub">{sub}</div></div>', unsafe_allow_html=True)
     st.write('')
 
     # ---- driver mix and the fix
@@ -188,15 +206,15 @@ with tab_work:
         c1, c2 = st.columns([3, 2])
         with c1:
             names = [DRIVER_NAME.get(d, d) + (' (needs a person)' if d == core.NC else '') for d in mix.driver]
-            fig = go.Figure(go.Bar(x=mix.merchants, y=names, orientation='h', marker_color=['#1A4FB8' if d != core.NC else '#98A2B3' for d in mix.driver],
-                                   text=[f"{m} merchants · {rs(v)}/yr" for m, v in zip(mix.merchants, mix.yearly_value_rs)], textposition='auto',
+            fig = go.Figure(go.Bar(x=mix.merchants, y=names, orientation='h', marker_color=[BLUE if d != core.NC else GREY for d in mix.driver],
+                                   text=[f"{m} merchants · {rs(v)}/yr" for m, v in zip(mix.merchants, mix.yearly_value_rs)], textposition='inside', insidetextanchor='end', textfont=dict(color='white', size=12),
                                    hovertemplate='%{y}: %{x} merchants<extra></extra>'))
             fig.update_layout(height=190, margin=dict(l=0, r=0, t=28, b=0), title=dict(text='Why merchants are at risk', font=dict(size=14)),
                               xaxis=dict(visible=False), yaxis=dict(autorange='reversed'), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, width='stretch', config={'displayModeBar': False})
         with c2:
             top = mix[mix.driver != core.NC].iloc[0] if (mix.driver != core.NC).any() else mix.iloc[0]
-            st.markdown(f"""<div class="card"><div class="label muted">BIGGEST FIXABLE DRIVER · SUGGESTED PROCESS FIX</div>
+            st.markdown(f"""<div class="card fix"><div class="label muted">BIGGEST FIXABLE DRIVER · SUGGESTED PROCESS FIX</div>
             <div style="font-weight:650;margin:4px 0">{DRIVER_NAME.get(top.driver, top.driver)}: {top.merchants} merchants, {rs(top.yearly_value_rs)}/yr</div>
             <div style="font-size:.9rem">{res['fix_ideas'][top.driver]}</div></div>""", unsafe_allow_html=True)
             if (mix.driver == core.NC).any():
@@ -331,13 +349,13 @@ with tab_work:
                 with t_trend:
                     months = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']
                     tpv = [r[f'tpv_m{i}_inr_lakh'] for i in range(1, 7)]
-                    f1 = go.Figure(go.Scatter(x=months, y=tpv, mode='lines+markers', line=dict(color='#1A4FB8', width=2.5), hovertemplate='%{x}: Rs %{y} lakh<extra></extra>'))
-                    f1.add_hline(y=float(np.mean(tpv[:3])), line_dash='dot', line_color='#98A2B3', annotation_text='months 1-3 average', annotation_font_size=10)
+                    f1 = go.Figure(go.Scatter(x=months, y=tpv, mode='lines+markers', line=dict(color=BLUE, width=3), fill='tozeroy', fillcolor='rgba(51,149,255,.10)', hovertemplate='%{x}: Rs %{y} lakh<extra></extra>'))
+                    f1.add_hline(y=float(np.mean(tpv[:3])), line_dash='dot', line_color=NAVY, annotation_text='months 1-3 average', annotation_font_size=10)
                     f1.update_layout(height=220, margin=dict(l=0, r=0, t=28, b=0), title=dict(text='Monthly volume (Rs lakh)', font=dict(size=13)),
                                      plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', yaxis=dict(rangemode='tozero', gridcolor='rgba(128,128,128,.2)'))
                     st.plotly_chart(f1, width='stretch', config={'displayModeBar': False})
                     f2 = go.Figure(go.Bar(x=['Months 1-3', 'Months 4-6'], y=[r.success_rate_m1_m3_pct, r.success_rate_m4_m6_pct],
-                                          marker_color=['#98A2B3', '#B42318' if sr_drop > 2 else '#1A4FB8'],
+                                          marker_color=[GREY, '#E5484D' if sr_drop > 2 else BLUE],
                                           text=[f'{r.success_rate_m1_m3_pct:.1f}%', f'{r.success_rate_m4_m6_pct:.1f}%'], textposition='outside'))
                     f2.update_layout(height=200, margin=dict(l=0, r=0, t=28, b=0), title=dict(text='Payment success rate', font=dict(size=13)),
                                      yaxis=dict(range=[min(70, r.success_rate_m4_m6_pct - 5), 100], visible=False), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
@@ -405,7 +423,7 @@ with tab_work:
             for (f, m), v in ss.decisions.items() if f == file_id and v['status'] == 'Approved']
     e1.download_button(f'Approved messages ({len(appr)})', pd.DataFrame(appr).to_csv(index=False).encode('utf-8-sig') if appr else b'',
                        file_name='approved_messages.csv', disabled=not appr, width='stretch')
-    out_cols = ['merchant_id', 'segment', 'industry', 'tier', 'driver_main', 'driver_second', 'review_likely_bucket', 'needs_person', 'playbook', 'playbook_also',
+    out_cols = ['merchant_id', 'segment', 'industry', 'tier', 'driver_main', 'driver_second', 'review_likely_bucket', 'needs_person', 'playbook_id', 'playbook_also_id', 'playbook', 'playbook_also',
                 'delivery', 'revenue_rank', 'call_list_status', 'call_this_week', 'am_alert', 'automated_track', 'expected_saving_rs', 'why_not_flagged']
     ranked = df.assign(_o=df.revenue_rank.fillna(999)).sort_values(['_o', 'tier'])[[c for c in out_cols if c in df]]
     e2.download_button('Ranked list of all merchants', ranked.to_csv(index=False).encode('utf-8-sig'), file_name='ranked_merchants.csv', width='stretch')
