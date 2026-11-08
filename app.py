@@ -32,7 +32,7 @@ st.set_page_config(page_title='Merchant Retention Workbench', page_icon='📉', 
 NAVY, BLUE, BLUE_SOFT, GREY = '#012652', '#3395FF', '#EAF3FF', '#98A2B3'   # Razorpay brand navy and blue
 st.markdown("""
 <style>
-.block-container {padding-top: 1.1rem; padding-bottom: 2rem; max-width: 1440px;}
+.block-container {padding-top: 3.6rem; padding-bottom: 2rem; max-width: 1440px;}
 h1, h2, h3, h4 {letter-spacing: -0.015em;}
 h3 {color: inherit; margin-top: .6rem;}
 .hero {background: linear-gradient(120deg, #012652 0%, #06397A 55%, #3395FF 130%); color: #fff; border-radius: 16px; padding: 22px 26px 18px 26px; margin-bottom: 14px;
@@ -95,45 +95,69 @@ def tier_key(t):
 DEFAULT_FILE = 'data/Buildathon_Student_Data_Pack.xlsx'
 
 
+PRECOMPUTED = 'data/datapack_results.pkl'   # full results for the data pack, so the page opens instantly
+
+
 @st.cache_data(show_spinner=False)
-def run_engine(file_bytes: bytes, name: str):
+def run_engine(file_bytes: bytes, name: str, watch: bool):
+    """watch=False is instant (0.1 s) and already has every decision; watch=True adds the experimental watch list (the slow part)."""
+    if watch and hashlib.sha1(file_bytes).hexdigest() == hashlib.sha1(open(DEFAULT_FILE, 'rb').read()).hexdigest():
+        try:
+            import pickle
+            with open(PRECOMPUTED, 'rb') as f:
+                return pickle.load(f)
+        except Exception:
+            pass
     if name.lower().endswith('.csv'):
-        return core.run(pd.read_csv(io.BytesIO(file_bytes)))
-    return core.run(core.load_merchants(io.BytesIO(file_bytes)), playbooks=core.load_playbooks(io.BytesIO(file_bytes)))
+        return core.run(pd.read_csv(io.BytesIO(file_bytes)), watch=watch)
+    return core.run(core.load_merchants(io.BytesIO(file_bytes)), playbooks=core.load_playbooks(io.BytesIO(file_bytes)), watch=watch)
 
 
 ss = st.session_state
+ss.setdefault('up_key', 0); ss.setdefault('watch_ready', set()); ss.setdefault('last_file', None)
 with st.sidebar:
     st.markdown("<div class='side-brand'>Merchant Retention Workbench</div>", unsafe_allow_html=True)
     st.caption('Razorpay Campus AI Build-a-thon · Problem 2: churn early-warning and proactive outreach')
-    up = st.file_uploader('Merchant file (data pack .xlsx, or .csv with the same columns)', type=['xlsx', 'csv'])
+    up = st.file_uploader('Score a different month (optional)', type=['xlsx', 'csv'], key=f"up-{ss.up_key}",
+                          help='Upload the data pack or any file with the same P2_Merchants columns. It is scored as soon as it is uploaded: no button needed.')
     if up is not None:
         file_bytes, file_name = up.getvalue(), up.name
     else:
         file_bytes, file_name = open(DEFAULT_FILE, 'rb').read(), DEFAULT_FILE.split('/')[-1]
-    st.caption(f'Using: **{file_name}**')
+    status_box = st.empty()
+    if up is not None and st.button('Back to the data pack', width='stretch'):
+        ss.up_key += 1; st.rerun()
     ss.csm = st.text_input('Your name (for the approval log)', value=ss.get('csm', ''), placeholder='e.g. Anu')
     st.divider()
     ai_on = st.toggle('AI on (Claude)', value=ss.get('ai_on', llm.has_key()), disabled=not llm.has_key(), key='ai_on',
-                      help='On: Claude can write new drafts and answer new questions. Off: no calls to Claude at all. '
-                           'Stored AI results for the data pack are still shown, and anything else falls back to rule-based text.')
+                      help='On: you can ask Claude to write new drafts and answer new questions (only when you click). '
+                           'Off: no calls to Claude at all. Stored AI results are always shown.')
     llm.set_enabled(ai_on)
     if not llm.has_key():
         st.caption('No API key on this server, so AI is off. Stored AI results for the data pack are shown.')
     elif ai_on:
-        st.caption('AI is on. New calls to Claude are capped to protect the budget.')
+        st.caption('AI is on. Claude is only called when you click a button, and calls are capped to protect the budget.')
     else:
         st.caption('AI is off: no calls to Claude. Stored results only.')
     st.divider()
     st.caption('Nothing is sent to merchants from this app. Approved messages are exported for the CSM to send.')
 
 file_id = hashlib.sha1(file_bytes).hexdigest()[:10]
-with st.spinner('Scoring merchants...'):
-    res = run_engine(file_bytes, file_name)
+t0 = dt.datetime.now()
+watch_ready = file_id in ss.watch_ready or file_name == DEFAULT_FILE.split('/')[-1] and up is None
+res = run_engine(file_bytes, file_name, watch_ready)
+secs = (dt.datetime.now() - t0).total_seconds()
 if not res['ok']:
-    st.error('This file cannot be scored. Fix the checks marked FAIL and upload again.')
+    status_box.error(f'Could not score {file_name}. Fix the checks marked FAIL and upload again.')
+    st.error(f'**{file_name}** cannot be scored. These checks failed:')
     st.dataframe(res['checks'], hide_index=True, width='stretch')
     st.stop()
+n_merch = res['summary']['merchants']
+status_box.success(f"Loaded **{file_name}**: {n_merch} merchants scored, {int(res['df'].csm_call_list.sum())} calls ready.", icon='✅')
+if ss.last_file != file_id:
+    if ss.last_file is not None:
+        st.toast(f'Loaded {file_name}: {n_merch} merchants scored.', icon='✅')
+    ss.last_file = file_id
 
 df = res['df'].copy()
 PB = res['playbooks']
@@ -145,29 +169,21 @@ ss.setdefault('decisions', {}); ss.setdefault('audit', []); ss.setdefault('revie
 
 
 def log(action, merchant_id, detail=''):
-    ss.audit.append({'time': dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'by': ss.csm or '(no name)', 'file': file_name,
+    ss.audit.append({'time': dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'by': ss.csm or 'name not given', 'file': file_name,
                      'merchant_id': merchant_id, 'action': action, 'detail': detail})
 
 
-# ------------------------------------------------------------------ AI results (stored, or live when AI is on)
-@st.cache_data(show_spinner=False)
-def ai_reason(_row, key, live):
-    return P.write_reason(_row)
-
-
-@st.cache_data(show_spinner=False)
-def ai_draft(_row, key, live):
-    return P.draft_with_retry(_row)
-
-
-@st.cache_data(show_spinner=False)
-def ai_note(note, live):
-    return P.read_note(note)
+# ------------------------------------------------------------------ AI results
+# Drawing the page never waits on Claude: it only reads stored results. New AI work happens only when the user clicks,
+# with a progress box saying what is happening.
+def stored(fn, *a):
+    with llm.stored_only():
+        return fn(*a)
 
 
 def reason_for(r):
     if r.declining or r.possible_decline:
-        text, _ = ai_reason(r, f'{file_id}-{r.merchant_id}', llm.live())
+        text, _ = stored(P.write_reason, r)
         if text:
             return text, 'AI'
         return (f"Volume in months 4-6 is {abs(r.tpv_change):.0%} below months 1-3 and projected to be {r.projected_loss_m9:.0%} below its healthy level by month 9. "
@@ -207,10 +223,11 @@ with tab_work:
         with c1:
             names = [DRIVER_NAME.get(d, d) + (' (needs a person)' if d == core.NC else '') for d in mix.driver]
             fig = go.Figure(go.Bar(x=mix.merchants, y=names, orientation='h', marker_color=[BLUE if d != core.NC else GREY for d in mix.driver],
-                                   text=[f"{m} merchants · {rs(v)}/yr" for m, v in zip(mix.merchants, mix.yearly_value_rs)], textposition='inside', insidetextanchor='end', textfont=dict(color='white', size=12),
+                                   text=[f"{m} merchant{'s' if m != 1 else ''} · {rs(v)}/yr" for m, v in zip(mix.merchants, mix.yearly_value_rs)],
+                                   textposition='outside', cliponaxis=False, textfont=dict(color=NAVY, size=12),
                                    hovertemplate='%{y}: %{x} merchants<extra></extra>'))
             fig.update_layout(height=190, margin=dict(l=0, r=0, t=28, b=0), title=dict(text='Why merchants are at risk', font=dict(size=14)),
-                              xaxis=dict(visible=False), yaxis=dict(autorange='reversed'), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+                              xaxis=dict(visible=False, range=[0, float(mix.merchants.max()) * 1.75]), yaxis=dict(autorange='reversed'), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, width='stretch', config={'displayModeBar': False})
         with c2:
             top = mix[mix.driver != core.NC].iloc[0] if (mix.driver != core.NC).any() else mix.iloc[0]
@@ -220,7 +237,7 @@ with tab_work:
             if (mix.driver == core.NC).any():
                 nc_df = df[df.declining & df.needs_person]
                 soon = int((nc_df.days_to_contract_renewal <= core.PB3_RENEWAL_DAYS).sum())
-                st.markdown(f"""<div class="card" style="font-size:.88rem">{len(nc_df)} merchants show no operational cause; {soon} renew within 60 days.
+                st.markdown(f"""<div class="card" style="font-size:.88rem">{len(nc_df)} merchant{'s' if len(nc_df) != 1 else ''} show{'' if len(nc_df) != 1 else 's'} no operational cause; {soon} renew{'s' if soon == 1 else ''} within 60 days.
                 Suggested fix: {res['fix_ideas'][core.NC]}</div>""", unsafe_allow_html=True)
 
     # ---- the 15 calls (list) + merchant panel
@@ -278,6 +295,11 @@ with tab_work:
                 with t_over:
                     reason, src = reason_for(r)
                     st.markdown(f"<div class='card'><div class='label muted'>WHY THIS MERCHANT ({src})</div>{reason}</div>", unsafe_allow_html=True)
+                    if src == 'rule-based' and (r.declining or r.possible_decline) and llm.live():
+                        if st.button('Explain it in plain words with AI (a few seconds)', key=f'why-{file_id}-{mid}'):
+                            with st.spinner('Asking Claude to explain this merchant...'):
+                                P.write_reason(r)
+                            st.rerun()
                     drv = {r.driver_main, r.driver_second}
                     sr_drop = r.success_rate_m1_m3_pct - r.success_rate_m4_m6_pct
                     csat = '–' if pd.isna(r.last_csat_1_to_5) else f'{r.last_csat_1_to_5:.0f}/5'
@@ -302,15 +324,24 @@ with tab_work:
                                 f"<div class='muted'>Who runs it ({r.segment} merchant): {r.delivery}</div></div>", unsafe_allow_html=True)
                     note = r.get('account_manager_note')
                     if isinstance(note, str):
-                        nr = ai_note(note, llm.live())
+                        nr = stored(P.read_note, note)
                         tag = f" · AI reads it as <b>{nr['category']}</b>" if nr and nr.get('category') else ''
                         st.markdown(f"<div class='muted'>Account manager note: “{note}”{tag}</div>", unsafe_allow_html=True)
 
                 with t_msg:
                     key = (file_id, mid)
-                    d = ai_draft(r, f'{file_id}-{mid}', llm.live())
+                    d = stored(P.draft_with_retry, r)
                     if d is None:
-                        st.info('No stored draft for this file and AI is off, so this is the rule-based English draft.')
+                        if llm.live():
+                            st.info('This merchant has no AI draft yet. Below is a rule-based English draft you can use now, or let Claude write the '
+                                    'regional and English drafts and run every guardrail check (about 30 to 60 seconds).')
+                            if st.button('Write the drafts with AI', type='primary', key=f'gen-{file_id}-{mid}'):
+                                with st.status('Writing the drafts with Claude...', expanded=True) as stat:
+                                    out = P.draft_with_retry(r, progress=lambda m: stat.write(m))
+                                    stat.update(label='Drafts ready' if out and out.get('passed') else 'Done: see the guardrail result', state='complete')
+                                st.rerun()
+                        else:
+                            st.info('No AI draft for this merchant and AI is off, so this is the rule-based English draft.')
                         drafts, checks, ok = {'English': ('', P.template_draft(r))}, [], True
                     else:
                         drafts = {'English': (d['english'].get('subject', ''), d['english'].get('message', ''))}
@@ -335,15 +366,15 @@ with tab_work:
                                 st.markdown(f"<span class='{'check-ok' if okk else 'check-bad'}'>{'✓' if okk else '✗'}</span> {name}{' · ' + det if det else ''}",
                                             unsafe_allow_html=True)
                     b1, b2, b3 = st.columns(3)
-                    if b1.button('Approve', type='primary', key=f'ap-{file_id}-{mid}', disabled=not ss.csm, width='stretch'):
+                    if b1.button('Approve', type='primary', key=f'ap-{file_id}-{mid}', width='stretch'):
                         ss.decisions[key] = {'status': 'Approved', 'language': lang, 'text': edited, 'edited': edited.strip() != original.strip()}
                         log('Approved', mid, f"{lang}{' (edited)' if ss.decisions[key]['edited'] else ''}"); st.rerun()
-                    if b2.button('Reject', key=f'rj-{file_id}-{mid}', disabled=not ss.csm, width='stretch'):
+                    if b2.button('Reject', key=f'rj-{file_id}-{mid}', width='stretch'):
                         ss.decisions[key] = {'status': 'Rejected', 'language': lang, 'text': '', 'edited': False}
                         log('Rejected', mid, lang); st.rerun()
                     if b3.button('Reset', key=f'rs-{file_id}-{mid}', width='stretch'):
                         ss.decisions.pop(key, None); log('Reset', mid); st.rerun()
-                    st.caption(('Enter your name in the sidebar to approve or reject. ' if not ss.csm else '')
+                    st.caption(('Tip: add your name in the sidebar so the log shows who approved. ' if not ss.csm else '')
                                + f"Status: {ss.decisions[key]['status'] if key in ss.decisions else 'to review'}. Every decision is logged.")
 
                 with t_trend:
@@ -374,7 +405,10 @@ with tab_work:
                         ss.qa[(file_id, mid)] = free; ss[f'last-free-{file_id}-{mid}'] = free
                     q = ss.qa.get((file_id, mid))
                     if q:
-                        ans, achk = P.answer_question(r, q)
+                        ans, achk = stored(P.answer_question, r, q)
+                        if ans is None and llm.live():
+                            with st.spinner('Asking Claude (a few seconds)...'):
+                                ans, achk = P.answer_question(r, q)
                         st.markdown(f'**{q}**')
                         if ans is None:
                             st.info('No stored answer for this question, and AI is off. Switch AI on in the sidebar to ask new questions.')
@@ -394,24 +428,24 @@ with tab_work:
 
     # ---- needs a person
     st.markdown('### Needs a person: cause unclear')
-    st.caption('The numbers show no performance, service or engagement problem for these declining merchants. The playbook comes from the likely bucket, '
-               'and a person confirms the cause before it runs. Merchants outside the 15 calls that renew within 60 days are alerted to their account manager, '
+    st.caption('The numbers show no performance, service or engagement problem for these declining merchants. Each gets a suggested playbook from the likely bucket '
+               '(PB-3 by default, because pricing is the most common hidden cause), and a person confirms the cause before it runs. Merchants outside the 15 calls that renew within 60 days are alerted to their account manager, '
                'who owns any pricing conversation; the AI never offers terms.')
     if len(review) == 0:
         st.markdown('<div class="muted">None this month.</div>', unsafe_allow_html=True)
     for _, r in review.iterrows():
-        note = r.get('account_manager_note'); nr = ai_note(note, llm.live()) if isinstance(note, str) else None
+        note = r.get('account_manager_note'); nr = stored(P.read_note, note) if isinstance(note, str) else None
         cA, cB = st.columns([3, 2])
         with cA:
             where = 'On the call list' if r.csm_call_list else ('Account-manager alert' if r.am_alert else 'Automated track')
             st.markdown(f"<div class='card'><b>{r.get('business_name', r.merchant_id)}</b> <span class='muted'>· {r.merchant_id} · {r.segment} · renews in {int(r.days_to_contract_renewal)} days · {where}</span><br>"
-                        f"{pill(r.review_likely_bucket, 'blue')}{pill('Playbook: ' + r.playbook, 'grey')}"
+                        f"{pill(r.review_likely_bucket, 'blue')}{pill('Suggested: ' + r.playbook, 'grey')}"
                         f"{pill('Note reads as ' + nr['category'], 'purple') if nr and nr.get('category') else ''}"
-                        f"<div class='muted' style='margin-top:6px'>Note: “{note if isinstance(note, str) else 'no note'}”</div></div>", unsafe_allow_html=True)
+                        f"<div class='muted' style='margin-top:6px'>{'Note: “' + note + '”' if isinstance(note, str) else 'No account manager note'}</div></div>", unsafe_allow_html=True)
         with cB:
             opts = ['Not confirmed yet', 'Pricing / commercial: PB-3', 'Performance: PB-1', 'Service: PB-2', 'Engagement: PB-4', 'Other or external: PB-6']
             prev_choice = ss.review_decisions.get((file_id, r.merchant_id), opts[0])
-            choice = st.selectbox('Confirmed cause and playbook', opts, index=opts.index(prev_choice), key=f'rv-{file_id}-{r.merchant_id}', disabled=not ss.csm)
+            choice = st.selectbox('Confirmed cause and playbook', opts, index=opts.index(prev_choice), key=f'rv-{file_id}-{r.merchant_id}')
             if choice != prev_choice:
                 ss.review_decisions[(file_id, r.merchant_id)] = choice; log('Cause confirmed', r.merchant_id, choice)
 
@@ -461,3 +495,13 @@ with tab_why:
                                'Playbook': show.playbook, 'Account manager note': show.account_manager_note.fillna('')}),
                  hide_index=True, width='stretch', height=min(36 * (len(show) + 1) + 4, 560),
                  column_config={'Why not flagged': st.column_config.TextColumn(width='large')})
+
+# ------------------------------------------------------------------ finish the experimental watch list after the page is drawn
+# Everything above is already on screen. The watch list is the only slow step (it does not change the 15 calls),
+# so it runs last, with a note in the sidebar, and the page refreshes when it is done.
+if not res.get('watch_done', True):
+    status_box.info(f"Loaded **{file_name}**: {n_merch} merchants scored, {int(df.csm_call_list.sum())} calls ready. "
+                    "Finishing the experimental watch list in the background...", icon='⏳')
+    run_engine(file_bytes, file_name, True)
+    ss.watch_ready.add(file_id)
+    st.rerun()

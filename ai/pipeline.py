@@ -113,7 +113,7 @@ def _fact_text(facts):
     return '\n'.join(f"{f['id']} ({f['topic']}): {f['text']}" for f in facts) or '(no specific facts: write a neutral check-in)'
 
 
-def draft_for(row, retry_feedback=None):
+def draft_for(row, retry_feedback=None, progress=None):
     """English draft, regional version, translation check, independent claim check and code guardrails."""
     facts = merchant_facts(row)
     main_lang, alt_lang = languages(row)
@@ -124,6 +124,8 @@ def draft_for(row, retry_feedback=None):
             f"Cause: {'unclear (neutral check-in only)' if unclear else 'known'}\nFacts you may use:\n{_fact_text(facts)}")
     if retry_feedback:
         user += f"\n\nYour previous draft broke these rules, fix them: {retry_feedback}"
+    say = progress or (lambda m: None)
+    say('Writing the English message' + (' again, fixing what the checks found' if retry_feedback else ''))
     en = ask_json(SYS_DRAFT.format(length=_length(channel)), user, max_tokens=500)
     if en is None:
         return None
@@ -131,11 +133,14 @@ def draft_for(row, retry_feedback=None):
               'facts': facts, 'english': en}
     reg = back = same = None
     if regional:
+        say(f'Writing the {regional} version')
         reg = ask_json(SYS_TRANSLATE.format(language=regional), json.dumps({'subject': en.get('subject', ''), 'message': en.get('message', '')}, ensure_ascii=False), max_tokens=900)
         if reg and 'message' in reg:
+            say(f'Translating the {regional} version back to English to check it')
             back = ask(SYS_BACK.format(language=regional), (reg.get('subject', '') + '\n' + reg['message']).strip(), max_tokens=600)
             same = ask_json(SYS_SAME, f"FIRST:\n{en.get('subject', '')}\n{en.get('message', '')}\n\nSECOND:\n{back}", max_tokens=300)
     result.update({'regional_language': regional, 'regional': reg, 'back_translation': back, 'same_meaning': same})
+    say('Checking every claim against the merchant\'s data')
     ver = ask_json(SYS_VERIFY, f"Allowed facts:\n{_fact_text(facts)}\n\nMessage:\n{en.get('message', '')}", max_tokens=300)
     result['verifier'] = ver
     checks = G.check_draft(en.get('message', ''), facts, unclear, str(row.get('business_name', '')), channel,
@@ -151,13 +156,13 @@ def draft_for(row, retry_feedback=None):
     return result
 
 
-def draft_with_retry(row):
+def draft_with_retry(row, progress=None):
     """One regeneration if a guardrail fails; if it fails again the draft is blocked and the CSM writes it."""
-    r = draft_for(row)
+    r = draft_for(row, progress=progress)
     if r is None or r['passed']:
         return r
     feedback = '; '.join(f'{n}: {d}' if d else n for n, ok, d in r['checks'] if not ok)
-    r2 = draft_for(row, retry_feedback=feedback)
+    r2 = draft_for(row, retry_feedback=feedback, progress=progress)
     if r2 is None:
         return r
     r2['retried'] = True

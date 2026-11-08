@@ -84,6 +84,14 @@ def enabled():
     return getattr(_switch, 'on', True)
 
 
+class stored_only:
+    """Use inside the page so drawing it never waits on Claude: only stored results are read."""
+    def __enter__(self):
+        self.prev = enabled(); set_enabled(False)
+    def __exit__(self, *a):
+        set_enabled(self.prev)
+
+
 def has_key():
     return api_key() is not None
 

@@ -368,14 +368,16 @@ def _why_not_flagged(df):
 
 
 # ---------------------------------------------------------------- run everything
-def run(merchants: pd.DataFrame, pu_rounds: int = 200, playbooks: dict | None = None) -> dict:
+def run(merchants: pd.DataFrame, pu_rounds: int = 200, playbooks: dict | None = None, watch: bool = True) -> dict:
+    """Score every merchant. watch=False skips the experimental watch list (the only slow step, about 10 s);
+    it changes nothing about who is declining, the drivers, the playbooks or the 15 calls."""
     checks = check_data(merchants)
     if (checks.status == 'FAIL').any():
         return {'ok': False, 'checks': checks}
     df = merchants.copy().reset_index(drop=True)
     vol = _volume(df)
     adjust, size_table = _size_check(df)
-    df['score_pu'] = _watch_scores(df, adjust, pu_rounds)
+    df['score_pu'] = _watch_scores(df, adjust, pu_rounds) if watch else np.nan
     _drivers(df, adjust)
     _tiers_playbooks(df, playbooks)
     dec, versions_table = _ranking(df, vol['T'])
@@ -389,4 +391,5 @@ def run(merchants: pd.DataFrame, pu_rounds: int = 200, playbooks: dict | None = 
                'call_this_week': int(df.call_this_week.sum()), 'typical_wobble': vol['typical_wobble'],
                'decline_line': vol['decline_line']}
     return {'ok': True, 'checks': checks, 'df': df, 'summary': summary, 'value': _value_cost(df), 'driver_mix': mix,
-            'versions': versions_table, 'size_check': size_table, 'fix_ideas': FIX_IDEAS, 'playbooks': playbooks or PLAYBOOKS}
+            'versions': versions_table, 'size_check': size_table, 'fix_ideas': FIX_IDEAS, 'playbooks': playbooks or PLAYBOOKS,
+            'watch_done': bool(watch)}
