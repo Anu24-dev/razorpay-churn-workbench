@@ -1,0 +1,10 @@
+anthropic_key.txt
+*.key
+.env
+.streamlit/secrets.toml
+__pycache__/
+*.pyc
+data/*.tmp
+.DS_Store
+data/live_calls.json
+data/audit_log.csv
