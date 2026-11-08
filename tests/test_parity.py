@@ -7,7 +7,7 @@ from engine import core
 def compare(nb_results, data_file):
     t = time.time(); res = core.run(core.load_merchants(data_file)); secs = time.time() - t
     app = res['df'].set_index('merchant_id'); nb = pd.read_excel(nb_results, sheet_name='All merchants (ranked)').set_index('merchant_id')
-    cols = ['tier', 'driver_main', 'driver_second', 'review_likely_bucket', 'playbook', 'playbook_also', 'delivery',
+    cols = ['tier', 'driver_main', 'driver_second', 'review_likely_bucket', 'playbook', 'playbook_also', 'needs_person', 'delivery',
             'revenue_rank', 'csm_call_list', 'call_this_week', 'automated_track', 'am_alert', 'p_leave', 'save_chance', 'expected_saving_rs']
     bad = {}
     for c in cols:

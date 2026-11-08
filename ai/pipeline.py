@@ -69,7 +69,7 @@ SYS_QA = ("You answer a Razorpay customer success manager's question about one m
 METHOD_NOTES = ("Method notes: A merchant is 'declining' if its average volume in months 4-6 fell more than 3 typical monthly wobbles below months 1-3 "
                 "(or month 6 alone fell sharply) and it did not bounce back. 'Imminent fade' = projected to lose more than half its healthy volume by month 9. "
                 "The driver is the strongest problem family (performance, service, engagement) more than 1 standard deviation above average; if none, the "
-                "cause is unclear and a person reviews it. The 15 calls are ranked by chance of leaving x chance of saving x yearly value minus Rs 1,500; "
+                "cause is unclear, the playbook follows the likely bucket, and a person confirms it before acting. Every playbook is one of the six in the data pack (PB-1 to PB-6). The 15 calls are ranked by chance of leaving x chance of saving x yearly value minus Rs 1,500; "
                 "'Borderline' means the merchant drops out of the 15 under some reasonable assumptions. Chance of leaving and chance of saving are assumptions, "
                 "not measured.")
 

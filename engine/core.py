@@ -43,13 +43,19 @@ REQUIRED = (['merchant_id', 'segment', 'industry', 'tenure_months'] + TPV +
             ['success_rate_m1_m3_pct', 'success_rate_m4_m6_pct', 'support_tickets_last_90d', 'unresolved_tickets',
              'last_csat_1_to_5', 'products_used', 'logins_last_30d', 'days_to_contract_renewal', 'account_manager_note'])
 
-DRIVER_PB = {'performance': 'PB-1 Performance deep-dive', 'service': 'PB-2 Support recovery',
-             'engagement': 'PB-4 Re-engagement and adoption', NC: 'Human review first (diagnostic call); PB-3 if pricing is confirmed'}
-SECOND_STEPS = {'performance': 'PB-1 steps (success-rate review with Payments Ops)',
-                'service': 'PB-2 steps (own open tickets, single contact, closure date)',
-                'engagement': 'PB-4 steps (re-confirm contact, short product walkthrough)'}
-DELIVERY = {'Enterprise': 'Account manager + senior sponsor', 'Mid': 'CSM-led call',
-            'Small': 'Digital-first (WhatsApp/email), CSM if escalated'}
+# The six playbooks exactly as given in the data pack (P2_Playbooks). Every merchant gets one of these and nothing else.
+# If the uploaded file has a P2_Playbooks tab, its text is used instead.
+PLAYBOOKS = {
+    'PB-1': {'name': 'Performance deep-dive', 'what_happens': 'Joint call with merchant and Payments Ops to review success-rate drop by method/bank; share fix plan within 3 days.', 'when_it_applies': 'Success rate fell sharply or merchant complains of failures'},
+    'PB-2': {'name': 'Support recovery', 'what_happens': 'CSM takes ownership of all open tickets, gives a single point of contact and a closure date; senior callback within 48 hours.', 'when_it_applies': 'Multiple unresolved tickets, low CSAT'},
+    'PB-3': {'name': 'Commercial review', 'what_happens': 'Account Manager reviews rate card, volume tiers and renewal terms before the renewal date.', 'when_it_applies': 'Competitor mention, renewal within ~60 days'},
+    'PB-4': {'name': 'Re-engagement and adoption', 'what_happens': 'Executive-sponsor outreach plus a short workshop on unused products and reports; re-confirm the right contact person.', 'when_it_applies': 'Low logins, few products used, no response to outreach'},
+    'PB-5': {'name': 'Growth / expansion check-in', 'what_happens': 'Positive check-in; offer new products or higher-limit plans.', 'when_it_applies': 'Healthy and growing'},
+    'PB-6': {'name': 'Monitor only', 'what_happens': 'No outreach; keep on watchlist and re-check next month.', 'when_it_applies': 'Seasonal dip, low-volume stable, or no real risk signal'}}
+DRIVER_PB_ID = {'performance': 'PB-1', 'service': 'PB-2', 'engagement': 'PB-4', 'pricing': 'PB-3'}
+# Who runs the playbook depends on merchant size (the brief asks how a large merchant should be handled differently from a small one).
+# This is the delivery channel, not an extra playbook.
+DELIVERY = {'Enterprise': 'Account manager, with a senior sponsor', 'Mid': 'CSM call', 'Small': 'CSM via WhatsApp or email'}
 DRIVER_LABEL = {'performance': 'Performance (payments failing more)', 'service': 'Service (unresolved tickets, low CSAT)',
                 'engagement': 'Engagement (low logins, few products)', NC: 'Unclear: needs human review'}
 FIX_IDEAS = {
@@ -60,6 +66,16 @@ FIX_IDEAS = {
 
 
 # ---------------------------------------------------------------- loading and checks
+def load_playbooks(source):
+    """Read the P2_Playbooks tab if the file has one; otherwise use the data pack's six playbooks."""
+    try:
+        pb = pd.read_excel(source, sheet_name='P2_Playbooks')
+        out = {r.playbook_id: {'name': r.name, 'what_happens': r.what_happens, 'when_it_applies': r.when_it_applies} for r in pb.itertuples()}
+        return out if set(out) >= set(PLAYBOOKS) else PLAYBOOKS
+    except Exception:
+        return PLAYBOOKS
+
+
 def load_merchants(source) -> pd.DataFrame:
     """Read the P2_Merchants tab (Excel) or a CSV with the same columns."""
     name = getattr(source, 'name', str(source))
@@ -226,7 +242,7 @@ def _drivers(df, adjust):
 
 
 # ---------------------------------------------------------------- stage 4-5: tiers and playbooks
-def _tiers_playbooks(df):
+def _tiers_playbooks(df, playbooks=None):
     def tier(r):
         if r.imminent: return '1 Imminent fade'
         if r.declining and r.days_to_contract_renewal <= SWITCH_WINDOW_DAYS: return '2 Declining, renewal within 90 days'
@@ -239,17 +255,25 @@ def _tiers_playbooks(df):
         pool = df[df.tier.str.startswith('6')].sort_values('score_pu', ascending=False)
         df.loc[pool.index[:WATCH_N], 'tier'] = '5 Early-warning watch (experimental)'
 
-    def playbook(r):
-        if r.declining: return DRIVER_PB[r.driver_main]
-        if r.possible_decline:
-            if r.driver_main == NC: return 'Human review (light): check likely bucket, send digital check-in; PB-3 if pricing confirmed'
-            return DRIVER_PB[r.driver_main] + ' (digital version)'
-        if r.tier.startswith('4') or r.tier.startswith('5'): return 'PB-6 Monitor only'
-        return 'PB-5 Growth check-in' if r.growing else 'PB-6 Monitor only'
-    df['playbook'] = df.apply(playbook, axis=1)
-    has2 = (df.declining | df.possible_decline) & df.driver_second.isin(list(SECOND_STEPS)) & (df.driver_main != NC)
-    df['playbook_also'] = np.where(has2, 'Also: ' + df.driver_second.map(SECOND_STEPS).fillna(''), '')
-    df['delivery'] = np.where(df.declining, df.segment.map(DELIVERY), np.where(df.possible_decline, 'Automated digital track', ''))
+    def bucket_pb(b):
+        # unclear cause: the playbook follows the likely bucket, and a person confirms it before acting
+        b = str(b)
+        if 'commercial' in b: return 'PB-3'
+        return next((DRIVER_PB_ID[k] for k in ['performance', 'service', 'engagement'] if k in b), 'PB-3')
+
+    def playbook_id(r):
+        if r.declining or r.possible_decline:
+            return bucket_pb(r.review_likely_bucket) if r.driver_main == NC else DRIVER_PB_ID[r.driver_main]
+        if r.growing and not (r.tier.startswith('4') or r.tier.startswith('5')): return 'PB-5'
+        return 'PB-6'
+    pbs = playbooks or PLAYBOOKS
+    df['playbook_id'] = df.apply(playbook_id, axis=1)
+    has2 = (df.declining | df.possible_decline) & df.driver_second.isin(list(DRIVER_PB_ID)) & (df.driver_main != NC)
+    df['playbook_also_id'] = np.where(has2, df.driver_second.map(DRIVER_PB_ID).fillna(''), '')
+    df['playbook'] = df.playbook_id + ' ' + df.playbook_id.map(lambda i: pbs[i]['name'])
+    df['playbook_also'] = np.where(has2, df.playbook_also_id + ' ' + df.playbook_also_id.map(lambda i: pbs[i]['name'] if i else ''), '')
+    df['needs_person'] = (df.declining | df.possible_decline) & (df.driver_main == NC)   # cause unclear: a person confirms before the playbook runs
+    df['delivery'] = np.where(df.declining, df.segment.map(DELIVERY), np.where(df.possible_decline, 'Automated digital message', ''))
 
 
 # ---------------------------------------------------------------- stage 6: ranking
@@ -344,7 +368,7 @@ def _why_not_flagged(df):
 
 
 # ---------------------------------------------------------------- run everything
-def run(merchants: pd.DataFrame, pu_rounds: int = 200) -> dict:
+def run(merchants: pd.DataFrame, pu_rounds: int = 200, playbooks: dict | None = None) -> dict:
     checks = check_data(merchants)
     if (checks.status == 'FAIL').any():
         return {'ok': False, 'checks': checks}
@@ -353,7 +377,7 @@ def run(merchants: pd.DataFrame, pu_rounds: int = 200) -> dict:
     adjust, size_table = _size_check(df)
     df['score_pu'] = _watch_scores(df, adjust, pu_rounds)
     _drivers(df, adjust)
-    _tiers_playbooks(df)
+    _tiers_playbooks(df, playbooks)
     dec, versions_table = _ranking(df, vol['T'])
     _why_not_flagged(df)
     at_risk = df[df.declining]
@@ -365,4 +389,4 @@ def run(merchants: pd.DataFrame, pu_rounds: int = 200) -> dict:
                'call_this_week': int(df.call_this_week.sum()), 'typical_wobble': vol['typical_wobble'],
                'decline_line': vol['decline_line']}
     return {'ok': True, 'checks': checks, 'df': df, 'summary': summary, 'value': _value_cost(df), 'driver_mix': mix,
-            'versions': versions_table, 'size_check': size_table, 'fix_ideas': FIX_IDEAS}
+            'versions': versions_table, 'size_check': size_table, 'fix_ideas': FIX_IDEAS, 'playbooks': playbooks or PLAYBOOKS}

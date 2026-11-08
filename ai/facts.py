@@ -76,6 +76,7 @@ def internal_facts(row):
         'tier': row['tier'], 'driver_main': row.get('driver_main'), 'driver_second': row.get('driver_second'),
         'review_likely_bucket': row.get('review_likely_bucket') or None, 'playbook': row['playbook'],
         'playbook_also': row.get('playbook_also') or None, 'delivery': row.get('delivery') or None,
+        'cause_needs_person_to_confirm': bool(row.get('needs_person', False)),
         'yearly_value_rs': f(row['yearly_value_rs'], 0), 'expected_saving_rs': f(row.get('expected_saving_rs'), 0),
         'revenue_rank': None if _blank(row.get('revenue_rank')) else int(row['revenue_rank']),
         'call_list_status': row.get('call_list_status') or None,

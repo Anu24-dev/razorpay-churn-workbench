@@ -13,12 +13,16 @@ A CSM team can make 15 proactive calls a month. This app reads the month's merch
 
 | Layer | Does | Why |
 |---|---|---|
-| Engine (`engine/core.py`, rules + statistics) | Who is declining, how fast, the driver, the tier, the playbook, the ranking | Must be reproducible and testable |
+| Engine (`engine/core.py`, rules + statistics) | Who is declining, how fast, the driver, the tier, the playbook (always one of the six in the data pack), the ranking | Must be reproducible and testable |
 | AI (`ai/`, Claude) | Reads account-manager notes, writes the CSM's reason line, drafts the message (regional + English), checks the translation, answers questions about one merchant | Language work |
 | Guardrails (`ai/guardrails.py`, code) | Blocks drafts with numbers, promises (refunds, waivers, discounts, price changes, timelines), internal information (volume, leaving, risk, notes, competitors), claims not backed by the merchant's data, or a translation that changes the meaning | The brief's safety rules, enforced in code |
 | People | Approve, edit or reject every draft; confirm the cause when it is unclear; account managers own pricing | Nothing reaches a merchant without a human check |
 
 The app never sends anything. Approved messages are exported for the CSM to send.
+
+**Playbooks:** only the six in the data pack (PB-1 to PB-6), with their text shown word for word. Performance gets PB-1, service PB-2, engagement PB-4; a second problem adds its playbook (for example PB-1 + PB-2). When the cause is unclear, the playbook follows the likely bucket (PB-3 when the renewal is within 60 days) and a person confirms it before it runs. Merchant size sets who runs it (account manager with a senior sponsor, CSM call, or CSM via WhatsApp/email); that is the delivery channel, not an extra playbook.
+
+**AI switch:** the sidebar toggle turns AI off completely (no calls to Claude). Stored AI results are still shown; anything else falls back to rule-based text.
 
 ## Run locally
 

@@ -72,8 +72,24 @@ def _count_live_call():
         pass
 
 
+_switch = threading.local()   # per-session AI switch (each Streamlit session runs in its own thread)
+
+
+def set_enabled(on: bool):
+    """The app's 'AI on/off' switch. Off = no calls to Claude at all; stored results are still shown."""
+    _switch.on = bool(on)
+
+
+def enabled():
+    return getattr(_switch, 'on', True)
+
+
+def has_key():
+    return api_key() is not None
+
+
 def live():
-    return api_key() is not None and _live_calls_used() < MAX_LIVE_CALLS
+    return has_key() and enabled() and _live_calls_used() < MAX_LIVE_CALLS
 
 
 def _get_client():
