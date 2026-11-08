@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 
 from ai import guardrails as G
-from ai.facts import CHANNEL, internal_facts, languages, merchant_facts
+from ai.facts import CHANNEL, channel_for, internal_facts, languages, merchant_facts
 from ai.llm import MODEL_READ, MODEL_WRITE, ask, ask_json
 from engine.core import NC
 
@@ -102,7 +102,7 @@ def read_note(note):
         return None
     r = ask_json(SYS_NOTE, note, model=MODEL_READ, max_tokens=400)
     if not r or r.get('category') not in NOTE_CATEGORIES:
-        return r
+        return None          # anything outside the fixed list (including a note that tries to give instructions) is ignored
     r['evidence_is_quote'] = bool(r.get('evidence')) and r['evidence'].strip('"\' ').lower() in note.lower()
     return r
 
@@ -124,7 +124,7 @@ def draft_for(row, retry_feedback=None, progress=None, sender=SENDER):
     facts = merchant_facts(row)
     main_lang, alt_lang = languages(row)
     regional = main_lang if main_lang != 'English' else alt_lang
-    channel = CHANNEL[row['segment']]
+    channel = channel_for(row['segment'])
     unclear = row.get('driver_main') == NC
     user = (f"Business name: {row.get('business_name', row['merchant_id'])}\nChannel: {channel}\n"
             f"Cause: {'unclear (neutral check-in only)' if unclear else 'known'}\nFacts you may use:\n{_fact_text(facts)}")
@@ -167,6 +167,11 @@ def draft_for(row, retry_feedback=None, progress=None, sender=SENDER):
     result['checks'] = checks
     result['passed'] = G.passed(checks)
     return result
+
+
+def back_translate(language, text):
+    """English reading of an edited regional message, so the code checks can run on it."""
+    return ask(SYS_BACK.format(language=language), text.strip(), max_tokens=600)
 
 
 def draft_with_retry(row, progress=None):

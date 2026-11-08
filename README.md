@@ -7,6 +7,7 @@ A CSM team can make 15 proactive calls a month. This app reads the month's merch
 ## Input and output
 
 - **Input:** the data pack (`P2_Merchants` tab) or any `.xlsx` / `.csv` with the same columns. The app loads `data/Buildathon_Student_Data_Pack.xlsx` by default.
+- **Odd files:** a file the app cannot use gets a plain reason instead of a crash (not a spreadsheet, empty, missing columns, fewer than 30 merchants, repeated IDs, text in a number column, blanks other than CSAT, zero volume). Harmless differences are accepted: another tab name if it has a `merchant_id` column, numbers stored as text, extra columns, segment names in any case. A segment other than Enterprise, Mid or Small is handled like Mid, with a warning. `tests/test_edge_cases.py` runs 26 of these cases.
 - **Output:** the 15 calls with risk, reason, playbook and drafts; the full ranked list of all merchants; merchants needing a person (unclear cause); account-manager alerts; a "why not flagged" view for seasonal, small and busy merchants; exports of approved messages, the ranked list and the approval log.
 
 ## Who does what
@@ -16,7 +17,7 @@ A CSM team can make 15 proactive calls a month. This app reads the month's merch
 | Engine (`engine/core.py`, rules + statistics) | Who is declining, how fast, the driver, the tier, the playbook (always one of the six in the data pack), the ranking | Must be reproducible and testable |
 | AI (`ai/`, Claude) | Reads account-manager notes, writes the CSM's reason line, drafts the message (regional + English), checks the translation, answers questions about one merchant | Language work |
 | Guardrails (`ai/guardrails.py`, code) | Blocks drafts with numbers, promises (refunds, waivers, discounts, price changes, timelines), internal information (volume, leaving, risk, notes, competitors), claims not backed by the merchant's data, or a translation that changes the meaning | The brief's safety rules, enforced in code |
-| People | Approve, edit or reject every draft; confirm the cause when it is unclear; account managers own pricing | Nothing reaches a merchant without a human check |
+| People | Approve, edit or reject every draft (an edited message is checked again for promises, deadlines and internal information before it can be approved); confirm the cause when it is unclear; account managers own pricing | Nothing reaches a merchant without a human check |
 
 The app never sends anything. Approved messages are exported for the CSM to send.
 

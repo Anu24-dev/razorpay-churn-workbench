@@ -56,6 +56,12 @@ DRIVER_PB_ID = {'performance': 'PB-1', 'service': 'PB-2', 'engagement': 'PB-4', 
 # Who runs the playbook depends on merchant size (the brief asks how a large merchant should be handled differently from a small one).
 # This is the delivery channel, not an extra playbook.
 DELIVERY = {'Enterprise': 'Account manager, with a senior sponsor', 'Mid': 'CSM call', 'Small': 'CSM via WhatsApp or email'}
+SEGMENTS = tuple(DELIVERY)
+
+
+def delivery_for(segment):
+    """A segment the data pack does not have is handled like Mid (a CSM call)."""
+    return DELIVERY.get(segment, DELIVERY['Mid'])
 DRIVER_LABEL = {'performance': 'Performance (payments failing more)', 'service': 'Service (unresolved tickets, low CSAT)',
                 'engagement': 'Engagement (low logins, few products)', NC: 'Unclear: needs human review'}
 FIX_IDEAS = {
@@ -76,12 +82,57 @@ def load_playbooks(source):
         return PLAYBOOKS
 
 
+class DataError(ValueError):
+    """A file the app cannot read, with a plain-language reason."""
+
+
 def load_merchants(source) -> pd.DataFrame:
     """Read the P2_Merchants tab (Excel) or a CSV with the same columns."""
     name = getattr(source, 'name', str(source))
     if str(name).lower().endswith('.csv'):
         return pd.read_csv(source)
     return pd.read_excel(source, sheet_name='P2_Merchants')
+
+
+def read_any(file_bytes: bytes, name: str) -> pd.DataFrame:
+    """Read an uploaded file. Excel: the P2_Merchants tab, or else the first tab that has a merchant_id column.
+    Raises DataError with a reason a person can act on."""
+    import io
+    if not file_bytes:
+        raise DataError('The file is empty.')
+    if str(name).lower().endswith('.csv'):
+        try:
+            return pd.read_csv(io.BytesIO(file_bytes))
+        except Exception as e:
+            raise DataError(f'This CSV could not be read ({type(e).__name__}). Save it again as a CSV with one header row.') from e
+    try:
+        sheets = pd.read_excel(io.BytesIO(file_bytes), sheet_name=None)
+    except Exception as e:
+        raise DataError('This is not a readable Excel file. Upload an .xlsx file (or a .csv) with the P2_Merchants columns.') from e
+    if 'P2_Merchants' in sheets:
+        return sheets['P2_Merchants']
+    for tab, d in sheets.items():
+        if 'merchant_id' in d.columns:
+            return d
+    raise DataError(f"No tab called P2_Merchants, and no tab with a merchant_id column. Tabs found: {', '.join(map(str, sheets))}.")
+
+
+def tidy(df: pd.DataFrame) -> pd.DataFrame:
+    """Harmless clean-up before the checks: trimmed column names, IDs as text, numbers stored as text turned into numbers,
+    segment names in the data pack's spelling. Nothing is filled in or guessed."""
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    if 'merchant_id' in df:
+        df['merchant_id'] = df.merchant_id.astype(str).str.strip()
+    for c in set(REQUIRED) - {'merchant_id', 'segment', 'industry', 'account_manager_note'}:
+        if c in df and not pd.api.types.is_numeric_dtype(df[c]):
+            conv = pd.to_numeric(df[c].astype(str).str.strip().replace({'': None, 'nan': None}), errors='coerce')
+            if conv.notna().sum() == df[c].notna().sum():
+                df[c] = conv
+    if 'segment' in df:
+        canon = {k.lower(): k for k in SEGMENTS}
+        df['segment'] = df.segment.map(lambda v: canon.get(str(v).strip().lower(), v) if pd.notna(v) else v)
+    return df
 
 
 def check_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -92,8 +143,24 @@ def check_data(df: pd.DataFrame) -> pd.DataFrame:
     check('Required columns present', not miss, f'missing: {miss}' if miss else '')
     if miss:
         return pd.DataFrame(rows, columns=['check', 'status', 'detail'])
-    check('At least 30 merchants with unique IDs', len(df) >= 30 and df.merchant_id.is_unique, f'{len(df)} rows')
-    check('TPV has no blanks or zeros', bool(df[TPV].notna().all().all() and (df[TPV] > 0).all().all()))
+    numeric = TPV + ['tenure_months', 'success_rate_m1_m3_pct', 'success_rate_m4_m6_pct', 'support_tickets_last_90d', 'unresolved_tickets',
+                     'last_csat_1_to_5', 'products_used', 'logins_last_30d', 'days_to_contract_renewal']
+    text_in = [c for c in numeric if not pd.api.types.is_numeric_dtype(df[c]) and pd.to_numeric(df[c], errors='coerce').notna().sum() < df[c].notna().sum()]
+    check('Number columns hold only numbers', not text_in,
+          '; '.join(f"{c}: {', '.join(map(str, df.merchant_id[pd.to_numeric(df[c], errors='coerce').isna() & df[c].notna()].head(3)))}" for c in text_in))
+    if text_in:
+        return pd.DataFrame(rows, columns=['check', 'status', 'detail'])
+    check('At least 30 merchants', len(df) >= 30, f'{len(df)} rows')
+    dups = df.merchant_id[df.merchant_id.duplicated()].astype(str).unique().tolist()
+    check('Merchant IDs are unique', not dups, f"repeated: {', '.join(dups[:5])}" if dups else '')
+    blanks = [c for c in numeric if c != 'last_csat_1_to_5' and df[c].isna().any()]
+    check('No blanks (except CSAT)', not blanks, '; '.join(f'{c}: {int(df[c].isna().sum())} blank' for c in blanks))
+    odd_seg = sorted(set(df.segment.dropna().astype(str)) - set(SEGMENTS))
+    check('Segments are Enterprise, Mid or Small', not odd_seg and df.segment.notna().all(),
+          f"other values: {', '.join(odd_seg) or 'blank'} (handled like Mid)" if odd_seg or df.segment.isna().any() else '', warn=True)
+    if blanks:
+        return pd.DataFrame(rows, columns=['check', 'status', 'detail'])
+    check('TPV is above zero', bool((df[TPV] > 0).all().all()), f"{int((df[TPV] <= 0).any(axis=1).sum())} merchants with a zero or negative month" if not (df[TPV] > 0).all().all() else '')
     sr = df[['success_rate_m1_m3_pct', 'success_rate_m4_m6_pct']]
     check('Success rates between 0 and 100', bool(((sr >= 0) & (sr <= 100)).all().all()))
     check('CSAT is 1 to 5 where present', bool(df.last_csat_1_to_5.dropna().between(1, 5).all()))
@@ -142,13 +209,14 @@ def _volume(df):
     df['no_recovery_votes'] = (~bounce).sum(axis=1)
     df['m6_change'] = m6 / df.tpv_base - 1
     def dropped(avg_line, m6_line):
-        return (df.tpv_change <= avg_line) | (df.m6_change <= m6_line)
+        # a fall must be a fall: when no merchant's volume moves (wobble 0), a 0% change is not a decline
+        return ((df.tpv_change <= avg_line) & (df.tpv_change < 0)) | ((df.m6_change <= m6_line) & (df.m6_change < 0))
     big_drop = dropped(decline_line, sharp_line)
     df['declining'] = big_drop & (df.no_recovery_votes >= RECOVERY_VOTES_NEEDED)
     df['bounced_dip'] = big_drop & ~df.declining
     pl = -POSSIBLE_DECLINE_WOBBLES * wobble
     df['possible_decline'] = ~big_drop & dropped(pl, pl * np.sqrt(4 / 3)) & (df.no_recovery_votes >= RECOVERY_VOTES_NEEDED)
-    df['growing'] = df.tpv_change >= -decline_line
+    df['growing'] = (df.tpv_change >= -decline_line) & (df.tpv_change > 0)
     df['tpv_m9_projected'] = [_proj_method(r[3:6], 3, 'compound') for r in T]
     df['projected_loss_m9'] = 1 - df.tpv_m9_projected / df.tpv_peak
     df['imminent'] = df.declining & (df.projected_loss_m9 > IMMINENT_LOSS)
@@ -164,9 +232,14 @@ def _volume(df):
 def _size_check(df):
     adjust, rows = {}, []
     for col in ['logins_last_30d', 'products_used']:
-        p = kruskal(*[v.dropna() for _, v in df.groupby('segment')[col]]).pvalue
-        adjust[col] = bool(p < SIZE_GAP_P)
-        rows.append({'input': col, 'p_value': round(float(p), 4), 'used_as': 'size-relative' if adjust[col] else 'raw (no size gap)'})
+        groups = [v.dropna() for _, v in df.groupby('segment')[col] if v.notna().sum() > 0]
+        try:
+            p = float(kruskal(*groups).pvalue) if len(groups) >= 2 else np.nan
+        except ValueError:          # every value identical: no size gap to adjust for
+            p = np.nan
+        adjust[col] = bool(p < SIZE_GAP_P)        # nan < 0.05 is False: test not possible = use raw values
+        rows.append({'input': col, 'p_value': round(p, 4) if p == p else None,
+                     'used_as': 'size-relative' if adjust[col] else ('raw (no size gap)' if p == p else 'raw (size test not possible)')})
     return adjust, pd.DataFrame(rows)
 
 
@@ -204,7 +277,7 @@ def _pu_bagging(X, y, rounds=200, C=0.3, seed=SEED):
 
 def _watch_scores(df, adjust, pu_rounds=200):
     y = df.declining.astype(int).values
-    if y.sum() < 5:
+    if y.sum() < 5 or (1 - y).sum() < 5:      # too few decliners (or too few steady merchants) to learn from
         return np.full(len(df), np.nan)
     draws = [_make_X_mi(df, k, adjust) for k in range(MI_DRAWS)]
     return np.mean([_pu_bagging(Xk, y, rounds=pu_rounds, seed=SEED + k) for k, Xk in enumerate(draws)], axis=0)
@@ -273,7 +346,7 @@ def _tiers_playbooks(df, playbooks=None):
     df['playbook'] = df.playbook_id + ' ' + df.playbook_id.map(lambda i: pbs[i]['name'])
     df['playbook_also'] = np.where(has2, df.playbook_also_id + ' ' + df.playbook_also_id.map(lambda i: pbs[i]['name'] if i else ''), '')
     df['needs_person'] = (df.declining | df.possible_decline) & (df.driver_main == NC)   # cause unclear: a person confirms before the playbook runs
-    df['delivery'] = np.where(df.declining, df.segment.map(DELIVERY), np.where(df.possible_decline, 'Automated digital message', ''))
+    df['delivery'] = np.where(df.declining, df.segment.map(delivery_for), np.where(df.possible_decline, 'Automated digital message', ''))
 
 
 # ---------------------------------------------------------------- stage 6: ranking
@@ -336,7 +409,7 @@ def _value_cost(df):
     be = (OUTREACH_COST / (c15.p_leave * c15.yearly_value_rs)).max() if len(c15) else np.nan
     return {'at_risk_value': float(at_risk.yearly_value_rs.sum()), 'call_list_value': float(c15.yearly_value_rs.sum()),
             'saving_ours': saving(SAVE_CHANCE), 'saving_30': saving(0.3), 'saving_10': saving(0.1),
-            'outreach_cost': CAPACITY * OUTREACH_COST if len(c15) else 0,
+            'outreach_cost': len(c15) * OUTREACH_COST,
             'false_alarm_cost': float(((1 - c15.p_leave) * OUTREACH_COST).sum()), 'break_even_max': float(be)}
 
 
@@ -360,17 +433,22 @@ def _why_not_flagged(df):
         if r.segment == 'Small':
             return 'Small and steady', 'Small merchant: low volume is normal, and it has not fallen.'
         return 'Steady', 'Volume within normal month-to-month movement.'
-    out = df[~df.declining].apply(lambda r: pd.Series(why(r), index=['why_group', 'why_not_flagged']), axis=1)
-    df['why_group'] = out.why_group
-    df['why_not_flagged'] = out.why_not_flagged
-    sig = df.signal_to_watch.fillna('') != ''
-    df.loc[sig & ~df.declining, 'why_not_flagged'] += ' Watch: ' + df.loc[sig & ~df.declining, 'signal_to_watch'] + '.'
+    groups, texts = [], []
+    for i in df.index:
+        r = df.loc[i]
+        g, t = why(r) if not r.declining else (None, None)
+        if t is not None and str(r.signal_to_watch or '') != '':
+            t = f'{t} Watch: {r.signal_to_watch}.'
+        groups.append(g); texts.append(t)
+    df['why_group'] = pd.Series(groups, index=df.index, dtype=object)
+    df['why_not_flagged'] = pd.Series(texts, index=df.index, dtype=object)
 
 
 # ---------------------------------------------------------------- run everything
 def run(merchants: pd.DataFrame, pu_rounds: int = 200, playbooks: dict | None = None, watch: bool = True) -> dict:
     """Score every merchant. watch=False skips the experimental watch list (the only slow step, about 10 s);
     it changes nothing about who is declining, the drivers, the playbooks or the 15 calls."""
+    merchants = tidy(merchants)
     checks = check_data(merchants)
     if (checks.status == 'FAIL').any():
         return {'ok': False, 'checks': checks}

@@ -18,6 +18,11 @@ CHANNEL = {'Enterprise': 'email from the account manager', 'Mid': 'email from th
            'Small': 'WhatsApp message from the CSM'}
 
 
+def channel_for(segment):
+    """A segment the data pack does not have is handled like Mid."""
+    return CHANNEL.get(segment, CHANNEL['Mid'])
+
+
 def languages(row):
     """Main and alternative draft language. Enterprise: English first. Others: the city's main language first.
     The city is only a guess at the merchant's language, so the CSM always confirms."""

@@ -22,8 +22,9 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from ai import llm
+from ai import guardrails as G
 from ai import pipeline as P
-from ai.facts import CHANNEL
+from ai.facts import CHANNEL, channel_for
 from engine import core
 
 st.set_page_config(page_title='Merchant Retention Workbench', page_icon='📉', layout='wide')
@@ -113,9 +114,12 @@ def run_engine(file_bytes: bytes, name: str, watch: bool):
                 return pickle.load(f)
         except Exception:
             pass
-    if name.lower().endswith('.csv'):
-        return core.run(pd.read_csv(io.BytesIO(file_bytes)), watch=watch)
-    return core.run(core.load_merchants(io.BytesIO(file_bytes)), playbooks=core.load_playbooks(io.BytesIO(file_bytes)), watch=watch)
+    try:
+        merchants = core.read_any(file_bytes, name)
+    except core.DataError as e:
+        return {'ok': False, 'error': str(e)}
+    pbs = None if name.lower().endswith('.csv') else core.load_playbooks(io.BytesIO(file_bytes))
+    return core.run(merchants, playbooks=pbs, watch=watch)
 
 
 ss = st.session_state
@@ -153,12 +157,18 @@ watch_ready = file_id in ss.watch_ready or file_name == DEFAULT_FILE.split('/')[
 res = run_engine(file_bytes, file_name, watch_ready)
 secs = (dt.datetime.now() - t0).total_seconds()
 if not res['ok']:
-    status_box.error(f'Could not score {file_name}. Fix the checks marked FAIL and upload again.')
-    st.error(f'**{file_name}** cannot be scored. These checks failed:')
-    st.dataframe(res['checks'], hide_index=True, width='stretch')
+    status_box.error(f'Could not score {file_name}. See the reason on the right, fix the file and upload it again, or go back to the data pack.')
+    st.markdown("<div class='hero'><div class='title'>Merchant Retention Workbench</div><div class='sub'>This file could not be scored yet.</div></div>", unsafe_allow_html=True)
+    if 'error' in res:
+        st.error(f"**{file_name}** could not be read. {res['error']}")
+    else:
+        st.error(f'**{file_name}** cannot be scored. The checks marked FAIL below need fixing; the rest passed.')
+        st.dataframe(res['checks'], hide_index=True, width='stretch')
+    st.caption('Expected: the data pack, or an .xlsx / .csv with the same columns as its P2_Merchants tab (one row per merchant, at least 30 merchants).')
     st.stop()
 n_merch = res['summary']['merchants']
-status_box.success(f"Loaded **{file_name}**: {n_merch} merchants scored, {int(res['df'].csm_call_list.sum())} calls ready.", icon='✅')
+n_c = int(res['df'].csm_call_list.sum())
+status_box.success(f"Loaded **{file_name}**: {n_merch} merchants scored, {n_c} call{'s' if n_c != 1 else ''} ready.", icon='✅')
 if ss.last_file != file_id:
     if ss.last_file is not None:
         st.toast(f'Loaded {file_name}: {n_merch} merchants scored.', icon='✅')
@@ -214,9 +224,9 @@ with tab_work:
     # ---- money panel
     cards = [('Merchants at risk', f"{S['at_risk']}", f"{S['imminent']} imminent fades · {S['review']} need a person"),
              ('Yearly revenue at risk', rs(V['at_risk_value']), 'net revenue at 1% of TPV'),
-             ('Covered by the 15 calls', rs(V['call_list_value']), f"{V['call_list_value'] / V['at_risk_value']:.0%} of revenue at risk" if V['at_risk_value'] else ''),
-             ('Expected saving', f"Rs {V['saving_10'] / 1e5:,.1f}-{V['saving_ours'] / 1e5:,.1f}L", 'a range: the save chance is an assumption'),
-             ('Cost of the 15 calls', rs(V['outreach_cost']), f"each call pays off above a {V['break_even_max']:.1%} save chance" if V['outreach_cost'] else '')]
+             (f"Covered by the {len(calls)} call{'s' if len(calls) != 1 else ''}", rs(V['call_list_value']), f"{V['call_list_value'] / V['at_risk_value']:.0%} of revenue at risk" if V['at_risk_value'] else ''),
+             ('Expected saving', f"Rs {V['saving_10'] / 1e5:,.1f}-{V['saving_ours'] / 1e5:,.1f}L" if len(calls) else rs(0), 'a range: the save chance is an assumption'),
+             (f"Cost of the {len(calls)} call{'s' if len(calls) != 1 else ''}", rs(V['outreach_cost']), f"each call pays off above a {V['break_even_max']:.1%} save chance" if V['outreach_cost'] else '')]
     for i, (col, (lab, val, sub)) in enumerate(zip(st.columns(5), cards)):
         col.markdown(f'<div class="kpi{" accent" if i in (0, 3) else ""}"><div class="label">{lab}</div><div class="value">{val}</div><div class="sub">{sub}</div></div>', unsafe_allow_html=True)
     st.write('')
@@ -237,7 +247,7 @@ with tab_work:
         with c2:
             top = mix[mix.driver != core.NC].iloc[0] if (mix.driver != core.NC).any() else mix.iloc[0]
             st.markdown(f"""<div class="card fix"><div class="label muted">BIGGEST FIXABLE DRIVER · SUGGESTED PROCESS FIX</div>
-            <div style="font-weight:650;margin:4px 0">{DRIVER_NAME.get(top.driver, top.driver)}: {top.merchants} merchants, {rs(top.yearly_value_rs)}/yr</div>
+            <div style="font-weight:650;margin:4px 0">{DRIVER_NAME.get(top.driver, top.driver)}: {top.merchants} merchant{'s' if top.merchants != 1 else ''}, {rs(top.yearly_value_rs)}/yr</div>
             <div style="font-size:.9rem">{res['fix_ideas'][top.driver]}</div></div>""", unsafe_allow_html=True)
             if (mix.driver == core.NC).any():
                 nc_df = df[df.declining & df.needs_person]
@@ -246,9 +256,15 @@ with tab_work:
                 Suggested fix: {res['fix_ideas'][core.NC]}</div>""", unsafe_allow_html=True)
 
     # ---- the 15 calls (list) + merchant panel
-    st.markdown("### This month's 15 calls")
-    st.caption('Ranked by chance of leaving x chance of saving x yearly value. Borderline = drops out of the 15 under some reasonable assumptions, '
-               'so the CSM lead decides those slots. Click a row to open the merchant.')
+    if len(calls) == 0:
+        st.markdown("### This month's calls")
+        st.info('No merchant is declining in this file, so there is nobody to call this month. The **Why not flagged** tab shows how every merchant was read.')
+    else:
+        st.markdown(f"### This month's {len(calls)} call{'s' if len(calls) != 1 else ''}")
+        st.caption(('Ranked by chance of leaving x chance of saving x yearly value. Borderline = drops out of the 15 under some reasonable assumptions, '
+                    'so the CSM lead decides those slots. ' if len(calls) == core.CAPACITY else
+                    f'Only {len(calls)} merchant{"s are" if len(calls) != 1 else " is"} declining, so the team has spare capacity this month. ')
+                   + 'Click a row to open the merchant.')
 
     STATUS_LABEL = {'Approved': '✓ Approved', 'Not this month': '✗ Not this month', 'Writing it myself': '✎ Rewriting'}
 
@@ -278,15 +294,15 @@ with tab_work:
     else:
         left, right = st.container(), st.container()
     with left:
-        sel = st.dataframe(tbl, hide_index=True, width='stretch', on_select='rerun', selection_mode='single-row', key=f'calls-{file_id}',
+        sel = None if len(tbl) == 0 else st.dataframe(tbl, hide_index=True, width='stretch', on_select='rerun', selection_mode='single-row', key=f'calls-{file_id}',
                            height=36 * (len(tbl) + 1) + 4,
                            column_order=(['#', 'Merchant', 'Why', 'Playbook', 'Draft'] if has_sel else list(tbl.columns)),
                            column_config={'#': st.column_config.NumberColumn(width=36), 'Merchant': st.column_config.TextColumn(width=135),
-                                          'Why': st.column_config.TextColumn(width=150), 'Playbook': st.column_config.TextColumn(width=88),
-                                          'Draft': st.column_config.TextColumn(width=78)})
+                                          'Why': st.column_config.TextColumn(width=142), 'Playbook': st.column_config.TextColumn(width=84),
+                                          'Draft': st.column_config.TextColumn(width=96)})
         if sel and sel.selection.rows:
             ss.selected = tbl.iloc[sel.selection.rows[0]]['ID']
-        if not has_sel:
+        if not has_sel and len(tbl):
             st.caption('Tip: the playbook codes are the six in the data pack. Open a merchant to read what each one involves.')
 
     with right:
@@ -361,7 +377,7 @@ with tab_work:
                         order = [d['main_language']] + [l for l in drafts if l != d['main_language']]
                         drafts = {l: drafts[l] for l in order if l in drafts}
                         checks, ok = d['checks'], d['passed']
-                    ch = CHANNEL[r.segment]
+                    ch = channel_for(r.segment)
                     st.caption(f"{ch[0].upper() + ch[1:]}. Language guessed from the city ({r.get('city', '')}): confirm with the merchant."
                                + (' Enterprise: English first.' if r.segment == 'Enterprise' else ''))
                     dec = ss.decisions.get(key)
@@ -372,12 +388,18 @@ with tab_work:
                         st.code(dec['text'], language=None, wrap_lines=True)
                         if '[' in dec['text']:
                             st.warning('Fill in the two time options in [ ] before you send it.')
+                        for w in dec.get('warnings', []):
+                            if 'English words' in w:
+                                st.warning(f'Your edit has English words in the {dec["language"]} message ({w.split(": ", 1)[-1]}). Fine for a product name; otherwise write it in {dec["language"]}.')
                         if st.button('Undo approval', key=f'undo-{file_id}-{mid}'):
                             ss.decisions.pop(key); log('Approval undone', mid); st.toast(f'Approval undone: {r.get("business_name", mid)} is back to review.'); st.rerun()
                     elif dec and dec['status'] == 'Not this month':
-                        nxt = df[df.declining & (df.revenue_rank > len(calls))].sort_values('revenue_rank').head(1)
-                        nxt_txt = (f"Slot freed. Next in line: <b>{nxt.iloc[0].get('business_name', nxt.iloc[0].merchant_id)}</b> "
-                                   f"({nxt.iloc[0].merchant_id}, rank {int(nxt.iloc[0].revenue_rank)})." if len(nxt) else 'Slot freed.')
+                        freed = [m for (f, m), v in ss.decisions.items() if f == file_id and v['status'] == 'Not this month']
+                        pos = freed.index(mid) if mid in freed else 0
+                        nxt = df[df.declining & (df.revenue_rank > len(calls))].sort_values('revenue_rank')
+                        nxt_txt = (f"Slot freed. Next in line: <b>{nxt.iloc[pos].get('business_name', nxt.iloc[pos].merchant_id)}</b> "
+                                   f"({nxt.iloc[pos].merchant_id}, rank {int(nxt.iloc[pos].revenue_rank)})." if len(nxt) > pos
+                                   else 'Slot freed. No other declining merchant is waiting for a call.')
                         st.markdown(f"<div class='skipped'><b>✗ Not contacting this month</b> · decided by {dec['by']} at {dec['time']}<br>"
                                     f"Reason: {dec['reason']}<br><span class='muted'>{nxt_txt}</span></div>", unsafe_allow_html=True)
                         if st.button('Undo', key=f'undo-{file_id}-{mid}'):
@@ -392,18 +414,39 @@ with tab_work:
                         subj, body = drafts[lang]
                         original = (f'Subject: {subj}\n\n' if subj else '') + body
                         edited = st.text_area('Message (edit if you like)', value=original, height=230, key=f'txt-{file_id}-{mid}-{lang}')
+                        is_edited = edited.strip() != original.strip()
                         if checks:
                             n_pass = sum(1 for _, okk, _ in checks if okk)
-                            with st.expander(f"{'✓' if ok else '✗'} Safety checks: {n_pass} of {len(checks)} passed"):
+                            with st.expander(f"{'✓' if ok else '✗'} Safety checks on the {'original ' if is_edited else ''}draft: {n_pass} of {len(checks)} passed"
+                                             + (' · your edits are checked when you approve' if is_edited else '')):
                                 for name, okk, det in checks:
                                     st.markdown(f"<span class='{'check-ok' if okk else 'check-bad'}'>{'✓' if okk else '✗'}</span> {name}{' · ' + det if det else ''}",
                                                 unsafe_allow_html=True)
+                        blk_key = f'blocked-{file_id}-{mid}'
+                        if ss.get(blk_key) and ss[blk_key]['text'] == edited:
+                            st.error('Not approved: your edit added something the safety rules do not allow. Remove it and approve again.\n\n'
+                                     + '\n'.join(f"- {n}: **{d}**" for n, d in ss[blk_key]['hits']))
                         rj_key = f'rj-open-{file_id}-{mid}'
                         b1, b2 = st.columns(2)
                         if b1.button('✓ Approve and add to outbox', type='primary', key=f'ap-{file_id}-{mid}', width='stretch'):
-                            ss.decisions[key] = {'status': 'Approved', 'language': lang, 'text': edited, 'edited': edited.strip() != original.strip(),
+                            was_edited = edited.strip() != original.strip()
+                            warn, hits = [], []
+                            if was_edited:      # a person's edit gets the same safety checks before it can be approved
+                                chk = G.check_edit(edited, english=(lang == 'English'))
+                                if lang != 'English' and llm.live():
+                                    with st.spinner('Checking your edit (translating it back to English)...'):
+                                        back = P.back_translate(lang, edited)
+                                    if back:
+                                        chk += [(n + ' (your edit, translated back)', okk, det) for n, okk, det in G.check_edit(back) if 'placeholder' not in n]
+                                soft = ('placeholder', 'English words')
+                                hits = [(n, det) for n, okk, det in chk if not okk and not any(w in n for w in soft)]
+                                warn = [f'{n}: {det}' for n, okk, det in chk if not okk and any(w in n for w in soft)]
+                            if hits:
+                                ss[blk_key] = {'text': edited, 'hits': hits}; log('Approval blocked by safety check', mid, '; '.join(f'{n}: {d}' for n, d in hits)); st.rerun()
+                            ss.pop(blk_key, None)
+                            ss.decisions[key] = {'status': 'Approved', 'language': lang, 'text': edited, 'edited': was_edited, 'warnings': warn,
                                                  'by': ss.csm or 'name not given', 'time': dt.datetime.now().strftime('%H:%M'), 'reason': ''}
-                            log('Approved', mid, f"{lang}{' (edited)' if ss.decisions[key]['edited'] else ''}")
+                            log('Approved', mid, f"{lang}{' (edited, re-checked)' if was_edited else ''}")
                             st.toast(f'Approved: {r.get("business_name", mid)} is in the outbox.', icon='✅'); st.rerun()
                         if b2.button('✗ Reject...', key=f'rj-{file_id}-{mid}', width='stretch'):
                             ss[rj_key] = not ss.get(rj_key, False)
@@ -474,7 +517,7 @@ with tab_work:
 
     # ---- needs a person
     st.markdown('### Needs a person: cause unclear')
-    st.caption('The numbers show no performance, service or engagement problem for these declining merchants. Everything to weigh is on each card. '
+    if len(review): st.caption('The numbers show no performance, service or engagement problem for these declining merchants. Everything to weigh is on each card. '
                'Each has a suggested playbook (PB-3 by default, because pricing is the most common hidden cause). Confirm the cause after the call and '
                'the playbook follows. Merchants outside the 15 calls that renew within 60 days go to their account manager, who owns any pricing talk.')
     if len(review) == 0:
@@ -534,14 +577,14 @@ with tab_work:
                     unsafe_allow_html=True)
     for m, v in approved:
         rr = by_id.loc[m]
-        with st.expander(f"✓ {rr.get('business_name', m)} · {CHANNEL[rr.segment]} · {v['language']} · approved by {v['by']} at {v['time']}"):
+        with st.expander(f"✓ {rr.get('business_name', m)} · {channel_for(rr.segment)} · {v['language']} · approved by {v['by']} at {v['time']}"):
             st.code(v['text'], language=None, wrap_lines=True)
     skipped = [(m, v) for (f, m), v in ss.decisions.items() if f == file_id and v['status'] == 'Not this month']
     if skipped:
         st.markdown('<div class="muted">Not contacting this month: ' + '; '.join(f"{by_id.loc[m].get('business_name', m)} ({v['reason'].lower()})" for m, v in skipped)
                     + '</div>', unsafe_allow_html=True)
     e1, e2, e3 = st.columns(3)
-    appr = [{'merchant_id': m, 'business_name': by_id.loc[m].get('business_name', m), 'channel': CHANNEL[by_id.loc[m].segment],
+    appr = [{'merchant_id': m, 'business_name': by_id.loc[m].get('business_name', m), 'channel': channel_for(by_id.loc[m].segment),
              'language': v['language'], 'approved_by': v['by'], 'edited_by_csm': v['edited'], 'message': v['text']} for m, v in approved]
     e1.download_button(f'Download approved messages ({len(appr)})', pd.DataFrame(appr).to_csv(index=False).encode('utf-8-sig') if appr else b'',
                        file_name='approved_messages.csv', disabled=not appr, width='stretch')
@@ -575,10 +618,12 @@ with tab_why:
     groups = [g for g in ['Seasonal dip', 'Bounced-back dip', 'Small and steady', 'Busy and growing', 'Growing', 'Steady', 'Possible decline', 'Watch list']
               if g in set(nf.why_group)]
     counts = nf.why_group.value_counts()
-    for col, g in zip(st.columns(len(groups)), groups):
+    if not groups:
+        st.info('Every merchant in this file is declining, so nobody falls in this view.')
+    for col, g in zip(st.columns(len(groups)) if groups else [], groups):
         col.markdown(f'<div class="kpi"><div class="label">{g}</div><div class="value">{int(counts[g])}</div></div>', unsafe_allow_html=True)
     st.write('')
-    pick = st.segmented_control('Show', groups, default=groups[0], key='why-pick')
+    pick = st.segmented_control('Show', groups, default=groups[0], key='why-pick') if groups else None
     show = nf[nf.why_group == pick] if pick else nf
     st.dataframe(pd.DataFrame({'ID': show.merchant_id, 'Merchant': show.get('business_name', show.merchant_id), 'Size': show.segment,
                                'Volume 4-6 vs 1-3': [f'{x:+.0%}' for x in show.tpv_change], 'Why not flagged': show.why_not_flagged,
@@ -590,7 +635,7 @@ with tab_why:
 # Everything above is already on screen. The watch list is the only slow step (it does not change the 15 calls),
 # so it runs last, with a note in the sidebar, and the page refreshes when it is done.
 if not res.get('watch_done', True):
-    status_box.info(f"Loaded **{file_name}**: {n_merch} merchants scored, {int(df.csm_call_list.sum())} calls ready. "
+    status_box.info(f"Loaded **{file_name}**: {n_merch} merchants scored, {n_c} call{'s' if n_c != 1 else ''} ready. "
                     "Finishing the experimental watch list in the background...", icon='⏳')
     run_engine(file_bytes, file_name, True)
     ss.watch_ready.add(file_id)

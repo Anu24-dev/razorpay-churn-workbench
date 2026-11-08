@@ -75,6 +75,24 @@ def check_draft(english: str, facts: list, unclear_cause: bool, business_name: s
     return out
 
 
+def check_edit(text: str, english: bool = True):
+    """Re-check a message a person edited, at the moment they approve it. The CSM fills in the two time options,
+    so numbers and day names are allowed here; promises and internal information are not."""
+    t = re.sub(r'^subject:\s*', '', text, flags=re.I)
+    out = []
+    if english:
+        hits = _find(PROMISES, t); out.append(('No promises of refunds, waivers, discounts or price changes', not hits, ', '.join(hits)))
+        hits = [h for h in _find(TIMELINES, t) if not re.fullmatch(r'(by|before) (monday|tuesday|wednesday|thursday|friday|saturday|sunday)', h, re.I)]
+        out.append(('No promised timelines or deadlines', not hits, ', '.join(hits)))
+        hits = _find(INTERNAL, t); out.append(('No internal information: volume, leaving, risk, scores, notes, competitors', not hits, ', '.join(hits)))
+    else:
+        latin = sorted(set(re.findall(r"[A-Za-z][A-Za-z.'-]*", re.sub(r'^subject:', '', t, flags=re.I))))
+        out.append(('No English words mixed into the regional message', not latin, ', '.join(latin[:8])))
+    left = sorted(set(re.findall(r'\[[^\]]+\]', t)))
+    out.append(('No [ ] placeholders left unfilled', not left, ', '.join(left)))
+    return out
+
+
 def passed(checks):
     return all(ok for _, ok, _ in checks)
 
