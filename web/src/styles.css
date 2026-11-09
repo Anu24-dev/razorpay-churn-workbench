@@ -97,9 +97,9 @@ h1, h2, h3 { letter-spacing: -.02em; margin: 0; }
 .dot.skip { background: #9AA6B8; border-color: #9AA6B8; animation: pop .5s var(--ease); }
 .dot.next { border-color: var(--blue); animation: pulse 1.8s ease-in-out infinite; }
 .calls { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); overflow: hidden; }
-.calls-head, .call { display: grid; grid-template-columns: 44px 1.6fr 1.2fr 1.3fr .7fr .8fr .8fr .9fr; gap: 10px; align-items: center; padding: 12px 18px; text-align: left; }
+.calls-head, .call { display: grid; grid-template-columns: 40px 1.6fr 1.15fr 1.25fr .6fr .75fr .75fr .95fr 1.1fr; gap: 10px; align-items: center; padding: 12px 18px; text-align: left; }
 .calls-head { background: #F8FAFD; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); }
-.call { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: #fff; transition: background .2s, box-shadow .2s; position: relative; }
+.call { width: 100%; border: 0; cursor: pointer; border-bottom: 1px solid var(--line); background: #fff; transition: background .2s, box-shadow .2s; position: relative; }
 .call:last-child { border-bottom: 0; }
 .call:hover { background: #F7FBFF; }
 .call.sel { background: var(--blue-soft); box-shadow: inset 4px 0 0 var(--blue); }
@@ -239,8 +239,8 @@ select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px r
 @media (max-width: 1000px) {
   .insights { grid-template-columns: 1fr; }
   .calls-head { display: none; }
-  .call { grid-template-columns: 34px 1fr auto; grid-template-areas: none; }
-  .call > span:nth-child(n+4):not(.status) { display: none; }
+  .call { grid-template-columns: 34px 1fr auto auto; grid-template-areas: none; }
+  .call > span:nth-child(n+4):not(.status):not(.follow) { display: none; }
 }
 @media (max-width: 640px) {
   .topbar, .hero { padding-left: 16px; padding-right: 16px; } .main { padding: 52px 16px 32px; }
@@ -248,7 +248,8 @@ select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px r
   .hero h1 { font-size: 1.6rem; }
   .bar-row { grid-template-columns: 110px 1fr 90px; }
   .facts { grid-template-columns: 1fr; } .confirm-grid { grid-template-columns: 1fr; }
-  .call > span:nth-child(3) { display: none; }
+  .call > span:nth-child(3), .call > .status { display: none; }
+  .call { grid-template-columns: 30px 1fr auto; }
 }
 
 .ai-switch { display: inline-flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .22); color: #fff; border-radius: 999px; padding: 5px 12px 5px 6px; font-weight: 600; font-size: .9rem; }
@@ -281,3 +282,14 @@ select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px r
 .how-table th:not(:first-child), .how-table td:not(:first-child) { text-align: right; width: 120px; }
 .how-table th { color: var(--muted, #5b6b82); font-weight: 600; }
 .how-note { font-size: .9rem; color: var(--muted, #5b6b82); margin: 10px 0 4px; line-height: 1.5; }
+
+.call:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.follow-select { width: 100%; max-width: 150px; font: inherit; font-size: .88rem; font-weight: 600; padding: 6px 26px 6px 10px; border-radius: 999px; border: 1px solid transparent; cursor: pointer;
+  appearance: none; background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 13px) 52%, calc(100% - 9px) 52%; background-size: 4px 4px; background-repeat: no-repeat; transition: background-color .2s, border-color .2s; }
+.follow-select:hover, .follow-select:focus-visible { border-color: currentColor; outline: none; }
+.follow-select.tone-grey { background-color: var(--grey-soft); color: #475467; }
+.follow-select.tone-blue { background-color: var(--blue-soft); color: var(--blue); }
+.follow-select.tone-green { background-color: var(--green-soft); color: var(--green); }
+.follow-select.tone-amber { background-color: #FEF3E2; color: #B54708; }
+.follow-select.tone-red { background-color: #FDECEC; color: #C4320A; }

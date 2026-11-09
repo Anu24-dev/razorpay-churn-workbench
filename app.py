@@ -330,7 +330,15 @@ def cover_line(min_value, cost, n):
     if times == 1:
         return f"a year. Keeping just this one covers all {n} calls."
     return f"a year. Keeping one merchant worth more than {rs(cost)} covers all {n} calls."
-ss.setdefault('decisions', {}); ss.setdefault('audit', []); ss.setdefault('review_decisions', {}); ss.setdefault('qa', {}); ss.setdefault('selected', None)
+ss.setdefault('decisions', {}); ss.setdefault('follow_ups', {}); ss.setdefault('audit', []); ss.setdefault('review_decisions', {}); ss.setdefault('qa', {}); ss.setdefault('selected', None)
+
+
+# What happened after the outreach, set by the CSM for each merchant on the call list
+FOLLOW_UPS = ['Not started', 'Reached out', 'In progress', 'Resolved', 'No resolution', 'Merchant left']
+
+
+def follow_of(mid):
+    return ss.follow_ups.get((file_id, mid), 'Not started')
 
 
 def log(action, merchant_id, detail=''):
@@ -452,7 +460,8 @@ with tab_work:
         'Plan': [r.playbook_id for r in calls.itertuples()],
         'Renews in': [f"{int(x)} days" for x in calls.days_to_contract_renewal],
         'Pick': [PICK.get(x, x) for x in calls.call_list_status],
-        'Status': [status_of(m) for m in calls.merchant_id]})
+        'Status': [status_of(m) for m in calls.merchant_id],
+        'Follow-up': [follow_of(m) for m in calls.merchant_id]})
     ROW_H = 40
     prev = ss.get(f'calls-{file_id}')
     has_sel = bool(prev and getattr(prev, 'selection', None) and prev.selection.rows)
@@ -461,18 +470,19 @@ with tab_work:
     else:
         left, right = st.container(), st.container()
     with left:
-        approved = tbl['Status'].eq(STATUS_LABEL['Approved'])
+        approved = tbl['Status'].eq(STATUS_LABEL['Approved']) | tbl['Follow-up'].eq('Resolved')
         shown = tbl.style.apply(lambda row: ['background-color: #E6F6EE; color: #12804A' if approved[row.name] else '' for _ in row], axis=1)
         sel = None if len(tbl) == 0 else st.dataframe(
             shown, hide_index=True, width='stretch', on_select='rerun', selection_mode='single-row', key=f'calls-{file_id}',
             height=ROW_H * (len(tbl) + 1) + 4, row_height=ROW_H,
-            column_order=(['#', 'Merchant', 'Why', 'Status'] if has_sel else ['#', 'Merchant', 'Risk', 'Why', 'Plan', 'Renews in', 'Pick', 'Status']),
+            column_order=(['#', 'Merchant', 'Why', 'Follow-up'] if has_sel else ['#', 'Merchant', 'Risk', 'Why', 'Plan', 'Renews in', 'Pick', 'Status', 'Follow-up']),
             column_config={'#': st.column_config.NumberColumn(width=36), 'Merchant': st.column_config.TextColumn(width=150),
                            'Plan': st.column_config.TextColumn(help='The playbook from the data pack. Open a merchant to read what it involves.'),
                            'Risk': st.column_config.TextColumn(help='Critical: loses more than half its volume within about 90 days on the current trend. High: declining and renews within 90 days. Moderate: declining, not yet critical.'),
                            'Why': st.column_config.TextColumn(width=150 if has_sel else 200, help='Main reason for the decline'),
                            'Pick': st.column_config.TextColumn(help='Solid: in the top 15 under every set of estimates. Close call: drops out under some, so the CSM lead decides.'),
-                           'Status': st.column_config.TextColumn(width=112)})
+                           'Status': st.column_config.TextColumn('Message', width=112),
+                           'Follow-up': st.column_config.TextColumn(width=112, help='What happened after the outreach. Set it in the merchant panel.')})
         if sel and sel.selection.rows:
             ss.selected = tbl.iloc[sel.selection.rows[0]]['ID']
 
@@ -489,6 +499,13 @@ with tab_work:
                 st.markdown(f"<div style='font-size:1.15rem;font-weight:650'>{r.get('business_name', mid)}</div>"
                             f"<div class='muted'>{r.get('city', '')} · {r.industry} · {r.segment} · customer for {int(r.tenure_months)} months</div>{pills}",
                             unsafe_allow_html=True)
+                cur = follow_of(mid)
+                new = st.selectbox('Follow-up', FOLLOW_UPS, index=FOLLOW_UPS.index(cur), key=f'follow-{file_id}-{mid}',
+                                   help='What happened after the outreach. It is saved with your decisions and written to the activity log.')
+                if new != cur:
+                    ss.follow_ups[(file_id, mid)] = new
+                    log('Follow-up updated', mid, new)
+                    st.rerun()
                 t_over, t_msg, t_trend, t_ask = st.tabs(['Why', 'Message', 'Trend', 'Ask'])
 
                 with t_over:
@@ -765,6 +782,7 @@ with tab_work:
     out_cols = ['merchant_id', 'segment', 'industry', 'tier', 'driver_main', 'driver_second', 'review_likely_bucket', 'needs_person', 'playbook_id', 'playbook',
                 'delivery', 'revenue_rank', 'call_list_status', 'call_this_week', 'am_alert', 'automated_track', 'expected_saving_rs', 'why_not_flagged']
     ranked = df.assign(_o=df.revenue_rank.fillna(999)).sort_values(['_o', 'tier'])[[c for c in out_cols if c in df]]
+    ranked['follow_up'] = [follow_of(m) if c else '' for m, c in zip(ranked.merchant_id, df.loc[ranked.index, 'csm_call_list'])]
     e2.download_button('Download the full ranked list', ranked.to_csv(index=False).encode('utf-8-sig'), file_name='ranked_merchants.csv', width='stretch')
     e3.download_button(f'Download activity log ({len(ss.audit)})', pd.DataFrame(ss.audit).to_csv(index=False).encode('utf-8-sig') if ss.audit else b'',
                        file_name='decision_log.csv', disabled=not ss.audit, width='stretch')

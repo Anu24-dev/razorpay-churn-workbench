@@ -23,6 +23,9 @@ function coverLine(minValue: number, cost: number, n: number) {
   if (times === 1) return `a year. Keeping just this one covers all ${n} calls.`
   return `a year. Keeping one merchant worth more than ${rs(cost)} covers all ${n} calls.`
 }
+// What happened after the outreach, set by the CSM on each row. Kept with the decisions and written to the activity log.
+const FOLLOW_UPS = ['Not started', 'Reached out', 'In progress', 'Resolved', 'No resolution', 'Merchant left'] as const
+const FOLLOW_TONE: Record<string, string> = { 'Not started': 'grey', 'Reached out': 'blue', 'In progress': 'blue', Resolved: 'green', 'No resolution': 'amber', 'Merchant left': 'red' }
 const now = () => new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
 const nameOf = (r: Row) => r.business_name ?? r.merchant_id
 
@@ -61,6 +64,7 @@ export default function App() {
   const key = data ? `rzp-retention:${data.file}:${data.merchants.length}` : ''
   const [decisions, setDecisions] = useState<Record<string, Decision>>({})
   const [confirms, setConfirms] = useState<Record<string, string>>({})
+  const [followUps, setFollowUps] = useState<Record<string, string>>({})
   const [log, setLog] = useState<LogEntry[]>([])
   const [celebrated, setCelebrated] = useState(false)
 
@@ -69,10 +73,10 @@ export default function App() {
   }, [])
   useEffect(() => {   // decisions are kept per file in this browser, so a refresh does not lose them
     if (!key) return
-    const s = store.get(key, { decisions: {}, confirms: {}, log: [] as LogEntry[] })
-    setDecisions(s.decisions); setConfirms(s.confirms); setLog(s.log); setCelebrated(false)
+    const s = store.get(key, { decisions: {}, confirms: {}, followUps: {}, log: [] as LogEntry[] })
+    setDecisions(s.decisions); setConfirms(s.confirms); setFollowUps(s.followUps ?? {}); setLog(s.log); setCelebrated(false)
   }, [key])
-  useEffect(() => { if (key) store.set(key, { decisions, confirms, log }) }, [key, decisions, confirms, log])
+  useEffect(() => { if (key) store.set(key, { decisions, confirms, followUps, log }) }, [key, decisions, confirms, followUps, log])
 
   const toast = (text: string) => { const id = Date.now() + Math.random(); setToasts(t => [...t, { id, text }]); setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3200) }
   const addLog = (merchant_id: string, action: string, detail = '') => setLog(l => [...l, { time: new Date().toLocaleString('en-IN'), by: SENDER, merchant_id, action, detail }])
@@ -188,10 +192,11 @@ export default function App() {
               </div>
               {celebrated && <div className="celebrate rise"><Confetti /><b>All {calls.length} calls reviewed.</b> Approved messages are ready to send below.</div>}
               <div className="calls">
-                <div className="calls-head"><span>#</span><span>Merchant</span><span>Risk</span><span>Main reason</span><span>Playbook</span><span>Renews in</span><span>Pick</span><span>Status</span></div>
+                <div className="calls-head"><span>#</span><span>Merchant</span><span>Risk</span><span>Main reason</span><span>Playbook</span><span>Renews in</span><span>Pick</span><span>Message</span><span>Follow-up</span></div>
                 {calls.map((r, i) => { const d = decisions[r.merchant_id]; const k = tierKey(r.tier); return (
-                  <button key={r.merchant_id} className={`call rise ${openId === r.merchant_id ? 'sel' : ''} ${d?.status === 'Approved' ? 'is-ok' : d?.status === 'Skipped' ? 'is-skip' : ''}`}
-                    style={{ animationDelay: `${i * 25}ms` }} onClick={() => setOpenId(r.merchant_id)}>
+                  <div key={r.merchant_id} role="button" tabIndex={0} className={`call rise ${openId === r.merchant_id ? 'sel' : ''} ${d?.status === 'Approved' || followUps[r.merchant_id] === 'Resolved' ? 'is-ok' : d?.status === 'Skipped' ? 'is-skip' : ''}`}
+                    style={{ animationDelay: `${i * 25}ms` }} onClick={() => setOpenId(r.merchant_id)}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenId(r.merchant_id) } }}>
                     <span className="rank">{r.revenue_rank}</span>
                     <span className="mname"><b>{nameOf(r)}</b><small>{r.segment} · {r.city ?? r.industry}</small></span>
                     <span><Pill tone={RISK[k].tone} title={RISK_HELP[k]}>{RISK[k].label}</Pill>{r.call_this_week && <Pill tone="red">Call this week</Pill>}</span>
@@ -200,7 +205,13 @@ export default function App() {
                     <span>{r.days_to_contract_renewal} days</span>
                     <span>{r.call_list_status === 'Borderline' ? <Pill tone="amber" title="Drops out of the top 15 under some estimates, so the CSM lead decides.">Close call</Pill> : <span className="muted">{PICK[r.call_list_status] ?? ''}</span>}</span>
                     <span className="status">{d?.status === 'Approved' ? <Pill tone="green">✓ Approved</Pill> : d?.status === 'Skipped' ? <Pill tone="grey">Skipped</Pill> : d?.status === 'Rewriting' ? <Pill tone="blue">Rewriting</Pill> : <span className="muted">To review</span>}</span>
-                  </button>) })}
+                    <span className="follow" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+                      <select aria-label={`Follow-up for ${nameOf(r)}`} className={`follow-select tone-${FOLLOW_TONE[followUps[r.merchant_id] ?? 'Not started']}`}
+                        value={followUps[r.merchant_id] ?? 'Not started'}
+                        onChange={e => { const v = e.target.value; setFollowUps(f => ({ ...f, [r.merchant_id]: v })); addLog(r.merchant_id, 'Follow-up updated', v); toast(`${nameOf(r)}: ${v}`) }}>
+                        {FOLLOW_UPS.map(o => <option key={o} value={o}>{o}</option>)}
+                      </select></span>
+                  </div>) })}
               </div>
             </>}
           </section>
@@ -208,7 +219,7 @@ export default function App() {
           {review.length > 0 && <ConfirmSection review={review} ai={ai} PB={PB} confirms={confirms}
             onConfirm={(id, v) => { setConfirms(c => ({ ...c, [id]: v })); addLog(id, 'Cause confirmed', v); toast(`Saved: ${nameOf(byId.get(id)!)} · ${v}`) }} />}
 
-          <Outbox calls={calls} decisions={decisions} byId={byId} log={log} M={M} toast={toast} />
+          <Outbox calls={calls} decisions={decisions} followUps={followUps} byId={byId} log={log} M={M} toast={toast} />
         </> : <NotFlagged M={M} />}
       </main>
 
@@ -501,14 +512,15 @@ function ConfirmSection({ review, ai, PB, confirms, onConfirm }: { review: Row[]
 }
 
 // ---------------------------------------------------------------- ready to send, downloads and activity log
-function Outbox({ calls, decisions, byId, log, M, toast }: { calls: Row[]; decisions: Record<string, Decision>; byId: Map<string, Row>; log: LogEntry[]; M: Row[]; toast: (t: string) => void }) {
+function Outbox({ calls, decisions, followUps, byId, log, M, toast }: { calls: Row[]; decisions: Record<string, Decision>; followUps: Record<string, string>; byId: Map<string, Row>; log: LogEntry[]; M: Row[]; toast: (t: string) => void }) {
   const appr = Object.entries(decisions).filter(([id, d]) => d.status === 'Approved' && byId.has(id))
   const skipped = Object.entries(decisions).filter(([id, d]) => d.status === 'Skipped' && byId.has(id))
   const ranked = [...M].sort((a, b) => (a.revenue_rank ?? 999) - (b.revenue_rank ?? 999) || String(a.tier).localeCompare(String(b.tier)))
     .map(r => ({ merchant_id: r.merchant_id, business_name: r.business_name, segment: r.segment, industry: r.industry, risk: risk(r).label, tier: r.tier,
       main_reason: r.driver_main ? whyShort(r) : '', playbook_id: r.playbook_id, delivery: r.delivery,
       revenue_rank: r.revenue_rank ?? '', pick: PICK[r.call_list_status] ?? '', call_this_week: r.call_this_week, account_manager_alert: r.am_alert,
-      automated_track: r.automated_track, expected_saving_rs: r.expected_saving_rs == null ? '' : Math.round(r.expected_saving_rs), why_not_flagged: r.declining ? '' : whyLeft(r) }))
+      automated_track: r.automated_track, expected_saving_rs: r.expected_saving_rs == null ? '' : Math.round(r.expected_saving_rs), why_not_flagged: r.declining ? '' : whyLeft(r),
+      follow_up: r.csm_call_list ? (followUps[r.merchant_id] ?? 'Not started') : '' }))
   return (
     <section className="section">
       <h2>Ready to send</h2>
