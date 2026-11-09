@@ -73,7 +73,9 @@ export default function App() {
   const review = useMemo(() => M.filter(r => r.declining && r.needs_person).sort((a, b) => a.revenue_rank - b.revenue_rank), [M])
   const nextUp = useMemo(() => M.filter(r => r.declining && r.revenue_rank > calls.length).sort((a, b) => a.revenue_rank - b.revenue_rank), [M, calls])
   const done = calls.filter(r => decisions[r.merchant_id] && decisions[r.merchant_id].status !== 'Rewriting').length
-  const ai = (id: string) => data?.ai?.[id] ?? {}
+  const [aiOn, setAiOn] = useState<boolean>(() => store.get('rzp-retention:ai-on', true))
+  useEffect(() => store.set('rzp-retention:ai-on', aiOn), [aiOn])
+  const ai = (id: string): AI => (aiOn ? data?.ai?.[id] ?? {} : {})
 
   useEffect(() => {
     if (calls.length && done === calls.length && !celebrated) { setCelebrated(true); toast(`All ${calls.length} calls reviewed. Nice work.`) }
@@ -118,7 +120,10 @@ export default function App() {
       <header className="topbar">
         <div className="brand"><img src="/razorpay-logo.png" alt="Razorpay" className="logo" /><span className="divider" /><span className="product">Merchant Retention</span></div>
         <div className="top-actions">
-          <span className="file-chip" title={data.file}>{data.isPack ? 'Data pack' : data.file}</span>
+          <span className="file-chip" title={data.file}>Data: {data.isPack ? 'Build-a-thon data pack' : data.file} · {M.length} merchants</span>
+          <button className={`ai-switch ${aiOn ? 'on' : ''}`} role="switch" aria-checked={aiOn} onClick={() => { setAiOn(!aiOn); toast(aiOn ? 'AI off: showing rule-based messages only' : 'AI on: showing Claude-written drafts and summaries') }}
+            title="On: drafts, summaries and answers written by Claude and checked by code. Off: rule-based content only.">
+            <span className="knob" /><span>AI {aiOn ? 'on' : 'off'}</span></button>
           <button className="btn btn-upload" onClick={() => setDrawer(true)}><span aria-hidden>⤒</span> Upload data</button>
         </div>
       </header>
@@ -190,7 +195,7 @@ export default function App() {
 
       <footer className="footer">Built for the Razorpay Campus AI Build-a-thon · synthetic data from the build-a-thon data pack · nothing is sent from this app</footer>
 
-      {open && <Panel key={open.merchant_id} r={open} ai={ai(open.merchant_id)} PB={PB} isPack={data.isPack} decision={decisions[open.merchant_id]}
+      {open && <Panel key={open.merchant_id} r={open} ai={ai(open.merchant_id)} PB={PB} isPack={data.isPack} aiOn={aiOn} decision={decisions[open.merchant_id]}
         idx={callIdx} total={calls.length} nextUp={nextUp} decisions={decisions} calls={calls}
         onClose={() => setOpenId(null)} onPrev={() => callIdx > 0 && setOpenId(calls[callIdx - 1].merchant_id)} onNext={() => callIdx < calls.length - 1 && setOpenId(calls[callIdx + 1].merchant_id)}
         onDecide={(d, action, detail) => { decide(open.merchant_id, d, action, detail)
@@ -218,12 +223,13 @@ function Insights({ M }: { M: Row[] }) {
   const soon = nc.filter(r => r.days_to_contract_renewal <= PB3_RENEWAL_DAYS).length
   return (
     <section className="insights">
-      <div className="card rise">
+      <div className="card rise chart-card">
         <h3>Main reason for decline</h3>
         <div className="bars">{mix.map(([d, n], i) => (
           <div key={d} className="bar-row"><span className="bar-label">{DRIVER_NAME[d] ?? d}</span>
             <span className="bar-track"><span className={`bar ${d === NC ? 'grey' : ''}`} style={{ width: `${(n / max) * 100}%`, animationDelay: `${150 + i * 90}ms` }} /></span>
             <span className="bar-n">{plural(n, 'merchant')}</span></div>))}</div>
+        <p className="muted tiny foot">Across the {plural(dec.length, 'merchant')} at risk. The main reason is the strongest problem in each merchant's own numbers.</p>
       </div>
       <div className="stack">
         <div className="card accent rise" style={{ animationDelay: '80ms' }}>
@@ -241,7 +247,7 @@ function Insights({ M }: { M: Row[] }) {
 }
 
 // ---------------------------------------------------------------- the merchant panel
-function Panel(p: { r: Row; ai: AI; PB: Record<string, Playbook>; isPack: boolean; decision?: Decision; idx: number; total: number; nextUp: Row[]; decisions: Record<string, Decision>; calls: Row[]
+function Panel(p: { r: Row; ai: AI; PB: Record<string, Playbook>; isPack: boolean; aiOn: boolean; decision?: Decision; idx: number; total: number; nextUp: Row[]; decisions: Record<string, Decision>; calls: Row[]
   onClose: () => void; onPrev: () => void; onNext: () => void; onDecide: (d: Decision | null, action: string, detail?: string) => void }) {
   const { r, ai, PB } = p
   const [tab, setTab] = useState<'why' | 'msg' | 'trend' | 'ask'>(p.decision ? 'msg' : 'why')
@@ -286,11 +292,11 @@ function Panel(p: { r: Row; ai: AI; PB: Record<string, Playbook>; isPack: boolea
               ['Last support rating', r.last_csat_1_to_5 == null ? '–' : `${Math.round(r.last_csat_1_to_5)} out of 5`], ['Logins this month', String(r.logins_last_30d)],
               ['Products used', String(r.products_used)], ['Annual revenue', rs(r.yearly_value_rs)]].map(([l, v]) => <div key={l} className="tile"><div className="label">{l}</div><b>{v}</b></div>)}</div></Collapse>
           </div>}
-          {tab === 'msg' && <Message {...p} />}
+          {tab === 'msg' && <Message key={String(p.aiOn)} {...p} />}
           {tab === 'trend' && <Trend r={r} />}
           {tab === 'ask' && <div className="fade">
             <p className="muted small">Answers use only this merchant's data, and say so when the data is silent.</p>
-            <Ask ai={ai} isPack={p.isPack} />
+            <Ask ai={ai} isPack={p.isPack} aiOn={p.aiOn} />
           </div>}
         </div>
       </aside>
@@ -298,7 +304,7 @@ function Panel(p: { r: Row; ai: AI; PB: Record<string, Playbook>; isPack: boolea
   )
 }
 
-function Message(p: { r: Row; ai: AI; decision?: Decision; nextUp: Row[]; decisions: Record<string, Decision>; onDecide: (d: Decision | null, action: string, detail?: string) => void }) {
+function Message(p: { r: Row; ai: AI; aiOn?: boolean; decision?: Decision; nextUp: Row[]; decisions: Record<string, Decision>; onDecide: (d: Decision | null, action: string, detail?: string) => void }) {
   const { r, ai, decision } = p
   const versions = useMemo(() => {
     const v: Record<string, string> = {}
@@ -354,7 +360,7 @@ function Message(p: { r: Row; ai: AI; decision?: Decision; nextUp: Row[]; decisi
       <p className="muted small">{channelFor(r.segment)}. The language is based on their city, so confirm it with the merchant first.</p>
       {decision?.status === 'Rewriting' && <div className="note info">You are rewriting this one. Edit the message, then approve it.</div>}
       {ai.draft && !ai.draft.passed && <div className="note bad">The safety checks stopped this draft. Rewrite it below, then approve it.</div>}
-      {!ai.draft && <div className="note info">No AI draft for this merchant. This is a simple starting message that follows the same rules: no numbers, no promises.</div>}
+      {!ai.draft && <div className="note info">{p.aiOn === false ? 'AI is off, so this is a rule-based starting message.' : 'No AI draft for this merchant.'} It follows the same rules: no numbers, no promises.</div>}
       {langs.length > 1 && <div className="seg">{langs.map(l => <button key={l} className={l === lang ? 'on' : ''} onClick={() => setLang(l)}>{l}</button>)}</div>}
       <textarea className="msg-edit" value={text} onChange={e => { setTexts(t => ({ ...t, [lang]: e.target.value })); setBlocked(null) }} rows={12} aria-label="Message" />
       {checks.length > 0 && <Collapse title={<>{ai.draft?.passed ? <span className="ok">✓ Passed all {checks.length} safety checks</span> : <span className="bad">✗ {checks.length - passed} of {checks.length} safety checks failed</span>}{edited ? <span className="muted"> · your edits are checked when you approve</span> : null}</>}>
@@ -411,12 +417,12 @@ function Trend({ r }: { r: Row }) {
   )
 }
 
-function Ask({ ai, isPack }: { ai: AI; isPack: boolean }) {
+function Ask({ ai, isPack, aiOn }: { ai: AI; isPack: boolean; aiOn: boolean }) {
   const [q, setQ] = useState<string | null>(null)
   const ans = q ? ai.qa?.[PRESETS.find(p => p[0] === q)![1]] : null
   return <>
     <div className="asks">{PRESETS.map(([l]) => <button key={l} className={`chip ${q === l ? 'on' : ''}`} onClick={() => setQ(l)}>{l}</button>)}</div>
-    {q && <div className="answer fade"><b>{q}</b><p>{ans ?? (isPack ? 'No saved answer for this question.' : 'Saved AI answers are available for the data pack. For other files, use the Why tab.')}</p></div>}
+    {q && <div className="answer fade"><b>{q}</b><p>{ans ?? (!aiOn ? 'AI is off. Turn it on in the header to see answers written by Claude.' : isPack ? 'No saved answer for this question.' : 'Saved AI answers are available for the data pack. For other files, use the Why tab.')}</p></div>}
   </>
 }
 
