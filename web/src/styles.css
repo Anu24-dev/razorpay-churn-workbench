@@ -293,3 +293,9 @@ select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px r
 .follow-select.tone-green { background-color: var(--green-soft); color: var(--green); }
 .follow-select.tone-amber { background-color: #FEF3E2; color: #B54708; }
 .follow-select.tone-red { background-color: #FDECEC; color: #C4320A; }
+
+.method-note { margin: 12px 0 10px; max-width: 900px; line-height: 1.5; }
+.method-h { font-size: 1.1rem; margin: 26px 0 0; color: var(--navy); }
+.table td.nowrap { white-space: nowrap; }
+.table tr.strong td { font-weight: 700; color: var(--navy); }
+@media (max-width: 640px) { .table td.nowrap { white-space: normal; } }

@@ -55,7 +55,7 @@ function Collapse({ title, children, open = false }: { title: ReactNode; childre
 export default function App() {
   const [pack, setPack] = useState<Data | null>(null)
   const [data, setData] = useState<Data | null>(null)
-  const [tab, setTab] = useState<'calls' | 'left'>('calls')
+  const [tab, setTab] = useState<'calls' | 'left' | 'method'>('calls')
   const [openId, setOpenId] = useState<string | null>(null)
   const [drawer, setDrawer] = useState(false)
   const [how, setHow] = useState(false)
@@ -173,6 +173,7 @@ export default function App() {
         <nav className="tabs" role="tablist">
           <button role="tab" aria-selected={tab === 'calls'} className={tab === 'calls' ? 'on' : ''} onClick={() => setTab('calls')}>This month's calls <span className="count">{calls.length}</span></button>
           <button role="tab" aria-selected={tab === 'left'} className={tab === 'left' ? 'on' : ''} onClick={() => setTab('left')}>Not flagged <span className="count">{M.filter(r => !r.declining).length}</span></button>
+          <button role="tab" aria-selected={tab === 'method'} className={tab === 'method' ? 'on' : ''} onClick={() => setTab('method')}>Assumptions and testing</button>
         </nav>
 
         {tab === 'calls' ? <>
@@ -220,7 +221,7 @@ export default function App() {
             onConfirm={(id, v) => { setConfirms(c => ({ ...c, [id]: v })); addLog(id, 'Cause confirmed', v); toast(`Saved: ${nameOf(byId.get(id)!)} · ${v}`) }} />}
 
           <Outbox calls={calls} decisions={decisions} followUps={followUps} byId={byId} log={log} M={M} toast={toast} />
-        </> : <NotFlagged M={M} />}
+        </> : tab === 'left' ? <NotFlagged M={M} /> : <Method />}
       </main>
 
       <footer className="footer">Built for the Razorpay Campus AI Build-a-thon · synthetic data from the build-a-thon data pack · nothing is sent from this app</footer>
@@ -543,6 +544,103 @@ function Outbox({ calls, decisions, followUps, byId, log, M, toast }: { calls: R
 }
 
 // ---------------------------------------------------------------- not flagged
+// ---------------------------------------------------------------- assumptions and test evidence
+const ASSUMPTIONS: [string, string][] = [
+  ['Core', 'A merchant that is going to leave shows falling payment volume before it leaves.'],
+  ['Spotting a decline', "Months 1 to 3 are a fair picture of each merchant's normal volume."],
+  ['Spotting a decline', 'Normal month-to-month movement is the typical variation across all merchants in months 1 to 3, which is 2.6% in the data pack.'],
+  ['Spotting a decline', 'A merchant is declining if months 4 to 6 average more than three times that variation (7.7%) below months 1 to 3, or if month 6 alone falls sharply.'],
+  ['Spotting a decline', 'A drop counts only if it is not recovering, which means at least three of four recovery checks show no bounce-back.'],
+  ['Risk level', 'Critical means that, if the current trend continues to month 9, the merchant loses more than half of its best early month.'],
+  ['Risk level', 'High means declining with renewal within 90 days. Moderate means declining, not on track to lose half by month 9, with renewal more than 90 days away.'],
+  ['Finding the reason', 'Three problem areas explain most declines: payment performance, service and engagement. Pricing is inferred when none of them stands out.'],
+  ['Finding the reason', 'An area counts as the cause if it is more than one standard deviation worse than the average merchant.'],
+  ['Finding the reason', 'Total tickets and tenure are ignored, because busy, growing merchants raise many tickets.'],
+  ['Finding the reason', 'A blank support rating is never used to name a cause.'],
+  ['Finding the reason', 'On this data, logins and products used did not differ by merchant size, which I tested before using them as signals.'],
+  ['Finding the reason', 'If no area stands out and renewal is within 60 days, the likely cause is pricing, and a person confirms it.'],
+  ['Finding the reason', 'Account manager notes are supporting evidence only and never select, rank or decide the reason for a merchant.'],
+  ['Playbook', 'Each merchant receives one playbook for its main cause: PB-1 for payment failures, PB-2 for support, PB-3 for pricing, PB-4 for engagement, PB-5 for growing merchants and PB-6 for recovered dips and stable merchants.'],
+  ['Delivery', 'Size decides who delivers the playbook: the account manager for Enterprise, a CSM email and call for Mid, and a CSM WhatsApp message for Small.'],
+  ['Delivery', 'Small merchants can be reached on WhatsApp for business messages.'],
+  ['Ranking', 'For urgency, Critical merchants count as 1, while High and Moderate merchants count as 0.5.'],
+  ['Ranking', 'For fixability, payment failures and support issues count as 0.6, likely pricing as 0.4 and low engagement as 0.3.'],
+  ['Ranking', 'These weights only set the order, and the order was tested under 11 alternative weightings.'],
+  ['Money', 'No savings figure is claimed, because the data does not show how many merchants a call retains.'],
+  ['Money', 'Retaining a merchant retains its full yearly value, so partial saves are not counted.'],
+  ['Messages', "The merchant's language is inferred from its city, and Enterprise accounts receive English first."],
+  ['Messages', 'A person sends approved messages outside the app, and the app never sends anything.'],
+  ['Testing', 'The eight test datasets, which I generated with the same traps as the data pack, are a reasonable guide to performance, but real leave rates may differ.'],
+  ['Testing', "Account manager notes reflect the merchant's true situation, so they serve as an independent check of the engine's reasons, since the engine never uses them."],
+]
+const CASES: [string, string, string, string][] = [
+  ['Vihaan Labs (Small)', 'Critical · payment failures · PB-1 · called', 'Complained about UPI drop-offs', 'Correct'],
+  ['Falcon Labs (Mid)', 'Critical · payment failures · PB-1 · called', 'Asked for a review of success rates', 'Correct'],
+  ['Quest Studio (Mid)', 'Critical · low engagement · PB-4 · called', 'No response to last two check-ins', 'Correct'],
+  ['Dhruva Enterprises (Enterprise)', 'High · likely pricing · PB-3 · called', 'Comparing quotes from two providers', 'Correct'],
+  ['Banyan Enterprises (Mid)', 'High · likely pricing · PB-3 · called this week', 'Comparing quotes from two providers', 'Correct'],
+  ['Cedar Traders (Mid)', 'High · support issues · PB-2 · called (close call)', 'Says support replies take too long', 'Correct'],
+  ['Zenith Fashions (Mid)', 'Moderate · support issues · PB-2 · called', 'Settlement tickets still not closed', 'Correct'],
+  ['Indus Labs (Enterprise, Gifting)', 'Not flagged: dipped and recovered · PB-6', 'Slow quarter after peak, expects pickup', 'Correct (seasonal decoy)'],
+  ['Nimbus Enterprises (Mid, Gifting)', 'Not flagged: dipped and recovered, despite renewal in 80 days', 'Seasonal dip after the festive season', 'Correct (seasonal decoy)'],
+  ['Dhruva Services (Small, Education)', 'Not flagged: dipped and recovered · PB-6', 'Seasonal dip after the festive season', 'Correct (seasonal decoy)'],
+  ['Pixel Mart (Mid)', 'Growing 18% · PB-5', 'Many integration questions, all resolved', 'Correct (busy decoy)'],
+  ['Amber Travels (Small, Gifting)', 'Growing 25% · PB-5', 'Growing fast', 'Correct (busy decoy)'],
+  ['Haveli Electronics (Small)', 'Stable · PB-6', 'Small merchant, low touch', 'Correct (low-volume decoy)'],
+  ['Monsoon Pharma (Small)', 'Moderate · support issues · PB-2 · next in line', 'Escalated to the account manager twice', 'Reason correct, not called'],
+  ['Yatra Pharma (Small, Gifting)', 'Critical · low engagement · PB-4 · next in line', 'Dashboard rarely used since new manager', 'Reason correct, not called'],
+  ['Ivory Pharma (Small)', 'Critical · low engagement · PB-4 · not called', 'Dashboard rarely used since new manager', 'Wrong priority'],
+  ['Uday Enterprises (Small)', 'Critical · low engagement · PB-4 · not called', 'New manager, unclear contact', 'Wrong priority'],
+  ['Falcon Foods (Small, Travel)', 'Critical · payment failures · PB-1 · not called', 'Complained about UPI drop-offs', 'Wrong priority'],
+  ['Green Leaf Fashions (Small)', 'High · likely pricing · PB-3 · not called, renews in 26 days', 'Competitor offering lower MDR', 'Wrong priority'],
+  ['Banyan Mart (Small)', 'High · likely pricing · PB-3 · not called, renews in 13 days', 'Asked for the rate card ahead of renewal', 'Wrong priority'],
+]
+const RULES: [string, string, string][] = [
+  ['This engine', '115 of 120', '50%'], ['Largest clients', '16 of 120', '45%'], ['Largest volume drop', '118 of 120', '31%'],
+  ['Most support tickets', '64 of 120', '29%'], ['Random selection', '25 of 120', '9%'],
+]
+const MISTAKES: [string, string, string][] = [
+  ['Every merchant with flat volume was flagged', 'Edge-case testing', 'A merchant must fall, not merely stay flat.'],
+  ['Two playbooks were assigned to one merchant', 'Checking against the brief', 'One playbook per merchant, with the lower accuracy reported.'],
+  ['Unclear causes were sent to PB-3 without explanation', 'Reviewing the top 15', 'Labelled as likely pricing for a person to confirm, since this guess is correct only 29 of 56 times in tests.'],
+  ['The app crashed on badly formatted files', '26 bad-file tests', 'Data checks with plain error messages.'],
+  ['A savings figure rested on assumptions', 'My own review', 'Replaced with merchant value against outreach cost and the tested targeting.'],
+  ['The stability target was missed (11 Solid merchants rather than 12)', 'Notebook test', 'Reported as a failure, with unstable slots marked as close calls.'],
+]
+
+function Method() {
+  const [view, setView] = useState<'assume' | 'tests' | 'fixes'>('assume')
+  const tone = (r: string) => (r.startsWith('Correct') ? 'green' : r.startsWith('Reason') ? 'blue' : 'amber')
+  return (
+    <section className="section fade">
+      <h2>Assumptions and testing</h2>
+      <p className="lead">What the engine assumes, how it was tested, and what went wrong along the way. The test results refer to the Build-a-thon data pack and to eight test datasets with known outcomes.</p>
+      <div className="seg big">
+        <button className={view === 'assume' ? 'on' : ''} onClick={() => setView('assume')}>Assumptions <span className="count">{ASSUMPTIONS.length}</span></button>
+        <button className={view === 'tests' ? 'on' : ''} onClick={() => setView('tests')}>Test results</button>
+        <button className={view === 'fixes' ? 'on' : ''} onClick={() => setView('fixes')}>Mistakes fixed <span className="count">{MISTAKES.length}</span></button>
+      </div>
+      {view === 'assume' && <>
+        <p className="muted method-note">The data pack's own assumptions (1% net revenue, Rs 1,500 per outreach, a cap of 15 outreaches and the 90-day definition of churn) are used as given and are not repeated here.</p>
+        <div className="table-wrap"><table className="table"><thead><tr><th>#</th><th>Area</th><th>Assumption</th></tr></thead>
+          <tbody>{ASSUMPTIONS.map(([a, t], i) => <tr key={i} className="fade"><td>{i + 1}</td><td className="nowrap">{a}</td><td>{t}</td></tr>)}</tbody></table></div>
+      </>}
+      {view === 'tests' && <>
+        <h3 className="method-h">How the 15 are picked, compared with simpler rules</h3>
+        <p className="muted method-note">Eight test datasets with known outcomes, 15 calls each. Most of the departing revenue the engine misses belongs to merchants whose volume had not started falling within the six months of data.</p>
+        <div className="table-wrap"><table className="table"><thead><tr><th>Selection rule</th><th>Calls to merchants who left</th><th>Share of departing revenue reached</th></tr></thead>
+          <tbody>{RULES.map(([a, b, c], i) => <tr key={a} className={i === 0 ? 'strong' : ''}><td>{a}</td><td>{b}</td><td>{c}</td></tr>)}</tbody></table></div>
+        <h3 className="method-h">Twenty data pack merchants, checked against the account manager notes</h3>
+        <p className="muted method-note">The data pack has no churn labels, so each decision is compared with the account manager's note, which the engine never uses. The reason matched in all 14 flagged cases and all six decoys were left off. The five errors are in priority: small merchants with confirmed problems that missed the 15.</p>
+        <div className="table-wrap"><table className="table"><thead><tr><th>#</th><th>Merchant</th><th>Engine decision</th><th>Account manager note</th><th>Result</th></tr></thead>
+          <tbody>{CASES.map(([m, d, n, r], i) => <tr key={m}><td>{i + 1}</td><td><b>{m}</b></td><td>{d}</td><td className="muted">{n}</td><td><Pill tone={tone(r)}>{r}</Pill></td></tr>)}</tbody></table></div>
+      </>}
+      {view === 'fixes' && <div className="table-wrap"><table className="table"><thead><tr><th>Mistake</th><th>How it was found</th><th>What I changed</th></tr></thead>
+        <tbody>{MISTAKES.map(([a, b, c]) => <tr key={a}><td><b>{a}</b></td><td>{b}</td><td>{c}</td></tr>)}</tbody></table></div>}
+    </section>
+  )
+}
+
 function NotFlagged({ M }: { M: Row[] }) {
   const nf = M.filter(r => !r.declining)
   const groups = GROUPS.filter(([g]) => nf.some(r => r.why_group === g))
