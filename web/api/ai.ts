@@ -46,7 +46,9 @@ const METHOD_NOTES = "Method notes: A merchant is 'declining' if its average vol
   'The driver is the strongest problem family (performance, service, engagement) more than 1 standard deviation above average; if none, the ' +
   'cause is unclear, the playbook follows the likely bucket, and a person confirms it before acting. Every playbook is one of the six in the data pack (PB-1 to PB-6). ' +
   'The 15 calls are ranked by chance of leaving x chance of saving x yearly value minus Rs 1,500; ' +
-  "'Borderline' (shown as Close call) means the merchant drops out of the 15 under some reasonable assumptions. Chance of leaving and chance of saving are assumptions, not measured."
+  "'Borderline' (shown as Close call) means the merchant drops out of the 15 under some reasonable assumptions. The ranking weights are assumptions. For the money figures, the chance of leaving comes from tests on 8 datasets with known outcomes " +
+  '(172 of 173 Critical merchants left, 9 of 20 others), and the share a call keeps (about 1 in 9) comes from a published randomised trial with telecom customers. ' +
+  'Real outcomes for Razorpay are not yet known.'
 
 const SYS_REASON = 'You write a one or two sentence reason for a Razorpay customer success manager (internal, never sent to the merchant), ' +
   'explaining why this merchant is on the list and what the main problem is. Use only the facts in the JSON record. ' +

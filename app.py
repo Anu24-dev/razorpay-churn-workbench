@@ -314,6 +314,12 @@ by_id = df.set_index('merchant_id', drop=False)
 calls = df[df.csm_call_list].sort_values('revenue_rank')
 review = df[df.declining & df.needs_person].sort_values('revenue_rank')
 V, S = res['value'], res['summary']
+# Money chain: value reached -> value likely to leave (rates seen in 8 test datasets with known outcomes: Critical 172 of 173,
+# High and Moderate 9 of 20) -> share a call keeps (randomised trial: churn fell 1.9 points from 17.2%, Godinho de Matos,
+# Ferreira & Belo, Marketing Science 2018) -> minus call cost. 3 in 10 (Verbraken et al. 2013 default) is the best case only.
+LEFT_IN_TESTS = {True: 172 / 173, False: 9 / 20}
+_likely = float((calls.imminent.map(LEFT_IN_TESTS) * calls.yearly_value_rs).sum()) if len(calls) else 0.0
+MONEY = {'likely_leave': _likely, 'saving': _likely * 1.9 / 17.2 - V['outreach_cost'], 'saving_best': _likely * 0.3 - V['outreach_cost']}
 ss.setdefault('decisions', {}); ss.setdefault('audit', []); ss.setdefault('review_decisions', {}); ss.setdefault('qa', {}); ss.setdefault('selected', None)
 
 
@@ -328,31 +334,33 @@ def name_of(m):
 
 def how_we_pick():
     st.markdown(f"""
-**1. Declining.** Payment volume over the last three months is more than {abs(S['decline_line']):.1%} below the first three months, and it has not recovered.
-That threshold is three times the normal month-to-month variation ({S['typical_wobble']:.1%}), so ordinary ups and downs are not flagged.
+**How the money is worked out**
 
-**2. Risk level.** *Critical*: on the current trend, the merchant loses more than half its payment volume within about 90 days (by month 9).
-*High*: declining, and the contract renews within 90 days. *Moderate*: declining, but not yet on track to lose half.
+1. **Yearly value.** 1% of the latest month's payment volume, times 12 (the data pack's rule).
+2. **Revenue at risk, {rs(V['at_risk_value'])}.** What we lose if every falling merchant leaves. This is the worst case.
+3. **Likely to leave, {rs(MONEY['likely_leave'])} of the {rs(V['call_list_value'])} on the calls.** We tested the engine on 8 datasets where we know who left.
+Almost every Critical merchant left, and about half of the others did (table below). We apply those rates to each merchant.
+4. **Likely saving, {rs(MONEY['saving'])} a year.** Test data cannot show what a call does, so this step comes from a published trial:
+calling likely leavers kept about 1 in 9 of them (Godinho de Matos, Ferreira and Belo, 2018). The calls cost {rs(V['outreach_cost'])}, which is taken off.
+5. **Best case, {rs(MONEY['saving_best'])}.** If 3 in 10 calls work, the default used in churn research. This is not measured.
 
-**3. Main reason.** Each merchant's payment success rate, unresolved tickets, support rating, logins and products used are compared with all other merchants.
-If none stands out, the likely cause is pricing, to be confirmed on the call. Account manager notes support this but do not decide it.
+| In testing (8 datasets, 1,200 merchants) | Flagged | Left | Stayed |
+|---|---:|---:|---:|
+| Critical | 173 | 172 | 1 |
+| High | 6 | 2 | 4 |
+| Moderate | 14 | 7 | 7 |
 
-**4. Playbook.** One of the six playbooks in the data pack, matched to the main reason. Merchant size decides who runs it.
+**What this does not cover.** The test data is made up, so real leave rates may differ. The trial was with telecom customers, not merchants with a CSM,
+and outreach can backfire (Ascarza, Iyengar and Schleicher, 2016). Recording who stays after each call would replace the borrowed 1 in 9 with Razorpay's own figure.
 
-**5. Ranking.** Urgency × how fixable the cause is × annual revenue, minus Rs 1,500 per call. Critical merchants count fully and others half, because they are losing volume faster.
-Fixability is an estimate (payment failures and support issues highest, then pricing, then low engagement). These weights only set the order, not the money figures, and the list is re-checked under 11 sets of them.
-*Close call* marks merchants that drop out of the top 15 under some of them.
+**How the calls are picked**
 
-**Money.** Revenue at risk is the annual value of every declining merchant (the data pack's rule: 12 months at 1% of the latest month's volume), as if all of them left.
-The likely saving uses what testing showed (88 of 96 flagged merchants did leave) and the share a call keeps from a published randomised trial in which likely leavers were listed to be called:
-their leaving rate fell from 17.2% to 15.3%, so about 1 in 9 were kept (Godinho de Matos, Ferreira and Belo, Marketing Science, 2018). The cost of the calls is taken off.
-
-**Optimistic case.** If 3 in 10 calls keep the merchant, the default used in churn research (Verbraken, Verbeke and Baesens, 2013), the saving is {rs(V['call_list_value'] * 88 / 96 * 0.3 - V['outreach_cost'])} a year. This is an assumption, not a measurement.
-
-**Limits.** The trial was with telecom customers, not merchants with a dedicated CSM. Outreach can also backfire: in another trial, a retention campaign raised leaving from about 6% to 10% (Ascarza, Iyengar and Schleicher, 2016).
-Recording who stayed after each call would replace these borrowed figures with Razorpay's own.
-
-**Role of AI.** AI drafts the summaries and messages and checks translations. It does not decide who is on the list. Every message is approved by a CSM before it is sent.
+1. **Falling.** Payment volume is down more than {abs(S['decline_line']):.1%} and hasn't picked up. Normal monthly swings are about {S['typical_wobble']:.1%}, so small dips are ignored.
+2. **Risk level.** *Critical*: at this rate, half the volume is gone by month 9. *High*: falling, and the contract renews within 90 days. *Moderate*: falling, but slower.
+3. **Main reason.** Success rate, open tickets, support rating, logins and products used, compared with other merchants. If nothing stands out, we assume pricing and confirm it on the call.
+4. **Playbook.** One of the six in the data pack, matched to the main reason. Merchant size decides who runs it.
+5. **Order.** Urgent, fixable, high-value merchants come first. Critical counts double, which matches the tests above. The order is re-checked 11 ways, and *Close call* means the merchant drops out in some of them.
+6. **AI's role.** AI writes the drafts and checks translations. It does not pick the list, and a CSM approves every message.
 """)
 
 
@@ -366,15 +374,13 @@ tab_work, tab_why = st.tabs(["This month's calls", 'Not flagged'])
 # ================================================================== YOUR CALLS
 with tab_work:
     cover = V['call_list_value'] / V['at_risk_value'] if V['at_risk_value'] else 0
-    # Saving: 88 of 96 flagged merchants left in testing (four answer-key datasets); a call keeps about 1 in 9
-    # (randomised trial: churn fell 1.9 points from 17.2%, Godinho de Matos, Ferreira & Belo, Marketing Science 2018)
-    saving = V['call_list_value'] * 88 / 96 * (1.9 / 17.2) - V['outreach_cost']
+    saving = MONEY['saving']
     cards = [('Merchants at risk', f"{S['at_risk']}", f"{S['imminent']} critical"),
              ('Annual revenue at risk', rs(V['at_risk_value']), f"if all {S['at_risk']} declining merchants left"),
              (f"Reached by the {plural(len(calls), 'call')}", rs(V['call_list_value']) if len(calls) else '–',
               f"{cover:.0%} of the revenue at risk" if len(calls) else 'no calls needed'),
              ('Likely saving from the calls', rs(saving) if len(calls) else '–',
-              'a year, if 1 in 9 calls keeps the merchant, as in a published trial')]
+              f"a year. {rs(MONEY['likely_leave'])} of these merchants' revenue is likely to leave, and calls keep about 1 in 9")]
     st.markdown('<div class="kpis">' + ''.join(f'<div class="kpi{" accent" if i == 0 else ""}"><div class="label">{lab}</div><div class="value">{val}</div>'
                                                f'<div class="sub">{sub}</div></div>' for i, (lab, val, sub) in enumerate(cards)) + '</div>', unsafe_allow_html=True)
 

@@ -276,3 +276,8 @@ select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px r
 
 .link { background: none; border: 0; padding: 0; color: var(--blue-d); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .how-h { font-size: 1rem; margin: 6px 0 -2px; color: var(--navy); }
+.how-table { width: 100%; border-collapse: collapse; margin: 14px 0 6px; font-size: .9rem; }
+.how-table th, .how-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line, #e3e8ef); }
+.how-table th:not(:first-child), .how-table td:not(:first-child) { text-align: right; width: 70px; }
+.how-table th { color: var(--muted, #5b6b82); font-weight: 600; }
+.how-note { font-size: .9rem; color: var(--muted, #5b6b82); margin: 10px 0 4px; line-height: 1.5; }
