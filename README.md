@@ -21,7 +21,7 @@ A CSM team can make 15 proactive calls a month. This app reads the month's merch
 
 The app never sends anything. Approved messages are exported for the CSM to send.
 
-**Playbooks:** only the six in the data pack (PB-1 to PB-6), with their text shown word for word. Performance gets PB-1, service PB-2, engagement PB-4; a second problem adds its playbook (for example PB-1 + PB-2). When the cause is unclear, the playbook follows the likely bucket (PB-3 when the renewal is within 60 days) and a person confirms it before it runs. Merchant size sets who runs it (account manager with a senior sponsor, CSM call, or CSM via WhatsApp/email); that is the delivery channel, not an extra playbook.
+**Playbooks:** only the six in the data pack (PB-1 to PB-6), with their text shown word for word. Performance gets PB-1, service PB-2, engagement PB-4. Each merchant gets one playbook, for its main problem; a second problem is shown to the CSM but does not add a playbook. When the cause is unclear, the playbook follows the likely bucket (PB-3 when the renewal is within 60 days) and a person confirms it before it runs. Merchant size sets who runs it (account manager with a senior sponsor, CSM call, or CSM via WhatsApp/email); that is the delivery channel, not an extra playbook.
 
 **AI switch:** the sidebar toggle turns AI off completely (no calls to Claude). Stored AI results are still shown; anything else falls back to rule-based text.
 

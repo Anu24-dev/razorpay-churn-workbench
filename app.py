@@ -58,40 +58,40 @@ h1, h2, h3, h4 {letter-spacing: -0.015em;}
 h3 {color: inherit; margin-top: .6rem;}
 .hero {background: linear-gradient(120deg, #012652 0%, #06397A 55%, #3395FF 130%); color: #fff; border-radius: 16px; padding: 22px 26px 18px 26px; margin-bottom: 14px;
        box-shadow: 0 6px 24px rgba(1,38,82,.18);}
-.hero .eyebrow {font-size: .74rem; letter-spacing: .12em; text-transform: uppercase; opacity: .75;}
+.hero .eyebrow {font-size: .82rem; letter-spacing: .12em; text-transform: uppercase; opacity: .75;}
 .hero .title {font-size: 1.85rem; font-weight: 750; margin: 2px 0 4px 0; letter-spacing: -0.02em;}
-.hero .sub {font-size: .92rem; opacity: .85;}
+.hero .sub {font-size: 1.05rem; opacity: .85;}
 .hero .chip {display: inline-block; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.22); border-radius: 999px; padding: 3px 11px;
-             font-size: .78rem; margin: 10px 6px 0 0;}
+             font-size: .88rem; margin: 10px 6px 0 0;}
 .kpi, .card, .tile {border: 1px solid rgba(128,128,128,.22); border-radius: 14px; background: rgba(255,255,255,.72); color: inherit;}
 @media (prefers-color-scheme: dark) { .stApp[data-theme="dark"] .kpi, .stApp[data-theme="dark"] .card, .stApp[data-theme="dark"] .tile {background: rgba(255,255,255,.04);} }
 .kpi {padding: 14px 16px 12px 16px; height: 100%; border-top: 4px solid #3395FF; box-shadow: 0 2px 10px rgba(1,38,82,.06);}
 .kpi.accent {border-top-color: #012652;}
 .kpis {display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 14px;}
 .kpi .value {white-space: nowrap;}
-.kpi .label, .tile .label {font-size: .72rem; opacity: .62; text-transform: uppercase; letter-spacing: .05em; font-weight: 600;}
-.kpi .value {font-size: 1.45rem; font-weight: 750; margin-top: 2px; color: #012652;}
-.kpi .sub {font-size: .79rem; opacity: .7; margin-top: 2px;}
+.kpi .label, .tile .label {font-size: .86rem; opacity: .62; text-transform: uppercase; letter-spacing: .05em; font-weight: 600;}
+.kpi .value {font-size: 1.75rem; font-weight: 750; margin-top: 2px; color: #012652;}
+.kpi .sub {font-size: .95rem; opacity: .75; margin-top: 2px;}
 .card {padding: 12px 14px; margin-bottom: 10px; box-shadow: 0 1px 6px rgba(1,38,82,.05);}
 .card.fix {border-left: 4px solid #3395FF;}
 .tiles {display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 6px 0 10px 0;}
 .tile {padding: 8px 10px;}
-.tile .value {font-size: 1.02rem; font-weight: 700; margin-top: 1px;}
+.tile .value {font-size: 1.12rem; font-weight: 700; margin-top: 1px;}
 .tile.flag {border-color: rgba(229,72,77,.55); background: rgba(229,72,77,.07);}
 .tile.warn {border-color: rgba(245,158,11,.6); background: rgba(245,158,11,.08);}
-.pill {display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .74rem; font-weight: 650; margin: 0 4px 4px 0;}
+.pill {display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .88rem; font-weight: 650; margin: 0 4px 4px 0;}
 .p-red {background: #FDECEC; color: #C2262E;} .p-amber {background: #FFF4E0; color: #9A5B00;} .p-blue {background: #EAF3FF; color: #0B5ED7;}
 .p-grey {background: #EEF1F5; color: #475467;} .p-green {background: #E6F7EE; color: #11804A;} .p-purple {background: #F1EAFE; color: #5B2DB3;}
 .p-navy {background: #012652; color: #fff;}
-.muted {opacity: .68; font-size: .86rem;}
-.pb-id {font-weight: 750; color: #0B5ED7;} .pb-text {font-size: .86rem; opacity: .82; margin: 2px 0 6px 0;}
-.banner {border-left: 4px solid #F59E0B; background: rgba(245,158,11,.09); padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; font-size: .9rem;}
+.muted {opacity: .72; font-size: .96rem;}
+.pb-id {font-weight: 750; color: #0B5ED7;} .pb-text {font-size: .96rem; opacity: .82; margin: 2px 0 6px 0;}
+.banner {border-left: 4px solid #F59E0B; background: rgba(245,158,11,.09); padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; font-size: 1rem;}
 .check-ok {color: #11804A; font-weight: 700;} .check-bad {color: #C2262E; font-weight: 700;}
 .done {border-left: 4px solid #11804A; background: rgba(17,128,74,.07); padding: 10px 12px; border-radius: 8px; margin-bottom: 8px;}
 .skipped {border-left: 4px solid #98A2B3; background: rgba(128,128,128,.08); padding: 10px 12px; border-radius: 8px; margin-bottom: 8px;}
-.facts {display: grid; grid-template-columns: 150px 1fr; gap: 5px 12px; font-size: .88rem; margin-top: 8px;}
+.facts {display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; font-size: 1rem; margin-top: 8px;}
 .facts .k {opacity: .62; font-weight: 600;} .facts .v.hot {color: #9A5B00; font-weight: 650;}
-.asks {margin: 6px 0 0 0; padding-left: 18px; font-size: .88rem;}
+.asks {margin: 6px 0 0 0; padding-left: 18px; font-size: 1rem;}
 section[data-testid="stSidebar"] > div {background: linear-gradient(180deg, #EAF3FF 0%, #F7FAFF 40%);}
 .side-brand {font-weight: 750; color: #012652; font-size: 1.05rem;}
 div[data-testid="stTabs"] button[aria-selected="true"] p {color: #0B5ED7; font-weight: 650;}
@@ -101,13 +101,13 @@ div[data-testid="stTabs"] button[aria-selected="true"] p {color: #0B5ED7; font-w
 st.markdown("""
 <style>
 .why-list {list-style: none; padding: 0; margin: 4px 0 10px 0;}
-.why-list li {padding: 7px 0 7px 26px; position: relative; font-size: .97rem; border-bottom: 1px solid rgba(128,128,128,.14);}
+.why-list li {padding: 7px 0 7px 26px; position: relative; font-size: 1.06rem; border-bottom: 1px solid rgba(128,128,128,.14);}
 .why-list li:last-child {border-bottom: none;}
 .why-list li::before {content: '•'; position: absolute; left: 8px; color: #3395FF; font-weight: 900;}
 .why-list li.hot::before {color: #E5484D;}
 .plan {border-left: 4px solid #3395FF;}
-.plan .what {font-size: .9rem; opacity: .85; margin: 3px 0 6px 0;}
-.lead {font-size: 1.02rem; margin: -4px 0 10px 0; opacity: .8;}
+.plan .what {font-size: 1rem; opacity: .85; margin: 3px 0 6px 0;}
+.lead {font-size: 1.1rem; margin: -4px 0 10px 0; opacity: .85;}
 .hero .title {font-size: 1.7rem;}
 </style>
 """, unsafe_allow_html=True)
@@ -163,8 +163,7 @@ def why_short(r):
         return nc_short(r) + '?'
     if not isinstance(r.driver_main, str):
         return ''
-    two = isinstance(r.driver_second, str) and r.driver_second
-    return DRIVER_NAME[r.driver_main] + (f" + {SHORT2.get(r.driver_second, r.driver_second)}" if two else '')
+    return DRIVER_NAME[r.driver_main]
 
 
 def stored(fn, *a):
@@ -198,7 +197,7 @@ def why_points(r):
                 (f'If nothing changes, they will be about {r.projected_loss_m9:.0%} down by month 9', False)))
     pts.append((driver_line(r, r.driver_main), r.driver_main != core.NC))
     if isinstance(r.driver_second, str) and r.driver_second:
-        pts.append((driver_line(r, r.driver_second), True))
+        pts.append(('Also: ' + driver_line(r, r.driver_second)[0].lower() + driver_line(r, r.driver_second)[1:], False))
     d = int(r.days_to_contract_renewal)
     pts.append((f'Their contract renews in {d} days', d <= core.PB3_RENEWAL_DAYS))
     return pts
@@ -353,15 +352,10 @@ with tab_work:
     cover = V['call_list_value'] / V['at_risk_value'] if V['at_risk_value'] else 0
     cards = [('Slipping away', plural(S['at_risk'], 'merchant'), f"{S['imminent']} leaving fast"),
              ('Revenue at stake', rs(V['at_risk_value']), 'a year'),
-             (f"Your {plural(len(calls), 'call')} cover", f'{cover:.0%}' if len(calls) else '–', f"{rs(V['call_list_value'])} of it" if len(calls) else 'nobody to call')]
+             (f"Covered by your {plural(len(calls), 'call')}", rs(V['call_list_value']) if len(calls) else '–',
+              f"{cover:.0%} of the revenue at stake" if len(calls) else 'nobody to call')]
     st.markdown('<div class="kpis">' + ''.join(f'<div class="kpi{" accent" if i == 0 else ""}"><div class="label">{lab}</div><div class="value">{val}</div>'
                                                f'<div class="sub">{sub}</div></div>' for i, (lab, val, sub) in enumerate(cards)) + '</div>', unsafe_allow_html=True)
-    if len(calls):
-        with st.popover('Is it worth the calls?'):
-            st.markdown(f"The {plural(len(calls), 'call')} take {rs(V['outreach_cost'])} of CSM time. "
-                        f"Each one pays for itself if even {V['break_even_max']:.1%} of calls keep the merchant.\n\n"
-                        f"If 1 in 10 calls works, that's **{rs(V['saving_10'])}** kept a year. If 1 in 3 works, **{rs(V['saving_30'])}**. "
-                        f"With our own guesses by cause, **{rs(V['saving_ours'])}**.")
 
     # ---- why they're slipping, and the biggest fix
     mix = res['driver_mix']
@@ -371,10 +365,10 @@ with tab_work:
             names = [DRIVER_NAME.get(d, d) for d in mix.driver]
             fig = go.Figure(go.Bar(x=mix.merchants, y=names, orientation='h', marker_color=[BLUE if d != core.NC else GREY for d in mix.driver],
                                    text=[plural(int(m), 'merchant') for m in mix.merchants],
-                                   textposition='outside', cliponaxis=False, textfont=dict(color=NAVY, size=12),
+                                   textposition='outside', cliponaxis=False, textfont=dict(color=NAVY, size=14),
                                    customdata=[rs(v) for v in mix.yearly_value_rs],
                                    hovertemplate='%{y}: %{x} merchants, %{customdata} a year<extra></extra>'))
-            fig.update_layout(height=180, margin=dict(l=0, r=0, t=28, b=0), title=dict(text="Why they're slipping", font=dict(size=14)),
+            fig.update_layout(height=210, yaxis_tickfont=dict(size=14), margin=dict(l=0, r=0, t=28, b=0), title=dict(text="Why they're slipping", font=dict(size=16)),
                               xaxis=dict(visible=False, range=[0, float(mix.merchants.max()) * 1.45]), yaxis=dict(autorange='reversed'),
                               plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, width='stretch', config={'displayModeBar': False})
@@ -382,12 +376,12 @@ with tab_work:
             top = mix[mix.driver != core.NC].iloc[0] if (mix.driver != core.NC).any() else mix.iloc[0]
             st.markdown(f"""<div class="card fix"><div class="label muted">BIGGEST THING TO FIX</div>
             <div style="font-weight:650;margin:4px 0">{DRIVER_NAME.get(top.driver, top.driver)} · {plural(int(top.merchants), 'merchant')}</div>
-            <div style="font-size:.92rem">{FIX[top.driver]}</div></div>""", unsafe_allow_html=True)
+            <div style="font-size:1rem">{FIX[top.driver]}</div></div>""", unsafe_allow_html=True)
             nc_df = df[df.declining & df.needs_person]
             if len(nc_df):
                 soon = int((nc_df.days_to_contract_renewal <= core.PB3_RENEWAL_DAYS).sum())
                 heard = sum(note_category(x) == 'pricing' for _, x in nc_df.iterrows())
-                st.markdown(f"""<div class="card" style="font-size:.92rem"><b>{plural(len(nc_df), 'more merchant')} look{'s' if len(nc_df) == 1 else ''} like pricing.</b>
+                st.markdown(f"""<div class="card" style="font-size:1rem"><b>{plural(len(nc_df), 'more merchant')} look{'s' if len(nc_df) == 1 else ''} like pricing.</b>
                 {'All' if soon == len(nc_df) else soon} renew within 60 days{f', and their account managers have heard about quotes or competitors' if heard else ''}.
                 <br><span class="muted">Idea: {FIX[core.NC]}</span></div>""", unsafe_allow_html=True)
 
@@ -420,10 +414,11 @@ with tab_work:
         'ID': calls.merchant_id.values,
         'Urgency': [urgency(r) for _, r in calls.iterrows()],
         'Why': [why_short(r) for _, r in calls.iterrows()],
-        'Plan': [r.playbook_id + (f' + {r.playbook_also_id}' if r.playbook_also_id else '') for r in calls.itertuples()],
+        'Plan': [r.playbook_id for r in calls.itertuples()],
         'Renews in': [f"{int(x)} days" for x in calls.days_to_contract_renewal],
         'Pick': [PICK.get(x, x) for x in calls.call_list_status],
         'Status': [status_of(m) for m in calls.merchant_id]})
+    ROW_H = 40
     prev = ss.get(f'calls-{file_id}')
     has_sel = bool(prev and getattr(prev, 'selection', None) and prev.selection.rows)
     if has_sel:
@@ -433,13 +428,13 @@ with tab_work:
     with left:
         sel = None if len(tbl) == 0 else st.dataframe(
             tbl, hide_index=True, width='stretch', on_select='rerun', selection_mode='single-row', key=f'calls-{file_id}',
-            height=36 * (len(tbl) + 1) + 4,
+            height=ROW_H * (len(tbl) + 1) + 4, row_height=ROW_H,
             column_order=(['#', 'Merchant', 'Why', 'Status'] if has_sel else ['#', 'Merchant', 'Urgency', 'Why', 'Plan', 'Renews in', 'Pick', 'Status']),
             column_config={'#': st.column_config.NumberColumn(width=36), 'Merchant': st.column_config.TextColumn(width=150),
-                           'Why': st.column_config.TextColumn(width=200 if has_sel else 230),
+                           'Why': st.column_config.TextColumn(width=150 if has_sel else 200),
                            'Plan': st.column_config.TextColumn(help='The playbook from the data pack. Open a merchant to read what it involves.'),
                            'Pick': st.column_config.TextColumn(help='Solid: in the top 15 however we weigh the guesses. Close call: drops out in some versions, so the CSM lead decides.'),
-                           'Status': st.column_config.TextColumn(width=100)})
+                           'Status': st.column_config.TextColumn(width=112)})
         if sel and sel.selection.rows:
             ss.selected = tbl.iloc[sel.selection.rows[0]]['ID']
 
@@ -448,7 +443,7 @@ with tab_work:
         if mid is not None:
             r = by_id.loc[mid]
             tl, tc = URGENCY[tier_key(r.tier)]
-            with st.container(height=36 * (len(tbl) + 1) + 4, border=True):
+            with st.container(height=ROW_H * (len(tbl) + 1) + 4, border=True):
                 pills = pill(tl, tc)
                 if r.call_this_week: pills += pill('Call this week', 'red')
                 if r.call_list_status == 'Borderline': pills += pill('Close call', 'amber')
@@ -471,9 +466,6 @@ with tab_work:
                     elif isinstance(note, str):
                         st.markdown(f"<div class='muted'>Their account manager says: “{note}”</div>", unsafe_allow_html=True)
                     plan = f"<div class='pb-id'>{r.playbook_id} · {PB[r.playbook_id]['name']}</div><div class='what'>{PB[r.playbook_id]['what_happens']}</div>"
-                    if r.playbook_also_id:
-                        plan += (f"<div class='pb-id'>+ {r.playbook_also_id} · {PB[r.playbook_also_id]['name']}</div>"
-                                 f"<div class='what'>{PB[r.playbook_also_id]['what_happens']}</div>")
                     st.markdown(f"<div class='card plan'><div class='label muted'>THE PLAN</div>{plan}<div class='muted'>Who: {r.delivery}</div></div>",
                                 unsafe_allow_html=True)
                     ai_text, _ = stored(P.write_reason, r) if (r.declining or r.possible_decline) else (None, None)
@@ -689,7 +681,7 @@ with tab_work:
             st.markdown(f"<div class='card'><b>{r.get('business_name', r.merchant_id)}</b> <span class='muted'>· {where}</span><br>"
                         f"{pill(nc_short(r), 'blue')}{pill('Plan: ' + r.playbook_id + ' · ' + PB[r.playbook_id]['name'], 'grey')}"
                         f"<div class='facts'>{rows}</div>"
-                        f"<div class='k' style='margin-top:10px;opacity:.62;font-weight:600;font-size:.88rem'>Ask on the call</div>"
+                        f"<div class='k' style='margin-top:10px;opacity:.7;font-weight:600;font-size:1rem'>Ask on the call</div>"
                         f"<ul class='asks'>{''.join(f'<li>{a}</li>' for a in asks)}</ul></div>", unsafe_allow_html=True)
             with st.expander('Their other numbers'):
                 csat = '–' if pd.isna(r.last_csat_1_to_5) else f'{r.last_csat_1_to_5:.0f} out of 5'
@@ -706,7 +698,7 @@ with tab_work:
                 ss.review_decisions[(file_id, r.merchant_id)] = choice; log('Cause confirmed', r.merchant_id, choice)
                 st.toast(f"Saved. {r.get('business_name', r.merchant_id)}: {choice}", icon='✅')
             if choice != opts[0]:
-                st.markdown(f"<div class='done' style='font-size:.88rem'>✓ Confirmed: <b>{choice}</b><br><span class='muted'>Saved to the activity log</span></div>",
+                st.markdown(f"<div class='done' style='font-size:1rem'>✓ Confirmed: <b>{choice}</b><br><span class='muted'>Saved to the activity log</span></div>",
                             unsafe_allow_html=True)
             else:
                 st.caption('Pick the cause once you have spoken to them. The plan follows from it.')
@@ -730,7 +722,7 @@ with tab_work:
              'language': v['language'], 'approved_by': v['by'], 'edited_by_csm': v['edited'], 'message': v['text']} for m, v in approved]
     e1.download_button(f'Download messages ({len(appr)})', pd.DataFrame(appr).to_csv(index=False).encode('utf-8-sig') if appr else b'',
                        file_name='approved_messages.csv', disabled=not appr, width='stretch')
-    out_cols = ['merchant_id', 'segment', 'industry', 'tier', 'driver_main', 'driver_second', 'review_likely_bucket', 'needs_person', 'playbook_id', 'playbook_also_id', 'playbook', 'playbook_also',
+    out_cols = ['merchant_id', 'segment', 'industry', 'tier', 'driver_main', 'driver_second', 'review_likely_bucket', 'needs_person', 'playbook_id', 'playbook',
                 'delivery', 'revenue_rank', 'call_list_status', 'call_this_week', 'am_alert', 'automated_track', 'expected_saving_rs', 'why_not_flagged']
     ranked = df.assign(_o=df.revenue_rank.fillna(999)).sort_values(['_o', 'tier'])[[c for c in out_cols if c in df]]
     e2.download_button('Download the full ranked list', ranked.to_csv(index=False).encode('utf-8-sig'), file_name='ranked_merchants.csv', width='stretch')
