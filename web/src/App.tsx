@@ -17,11 +17,11 @@ const PRESETS: [string, string][] = [['Why are they on the list?', 'Why is this 
 // No saving figure: the data has no record of how many merchants a call keeps. The app shows what the calls cost against what
 // each merchant on the list is worth, and the explainer shows how well the calls were aimed in tests with known outcomes.
 const roughRs = (x: number) => (x < 1e5 ? `Rs ${(Math.round(x / 1000) * 1000).toLocaleString('en-IN')}` : rs(x))
-function coverLine(minValue: number, cost: number) {
+function coverLine(minValue: number, cost: number, n: number) {
   const times = Math.floor(minValue / cost)
-  if (times >= 2) return `Keeping even the smallest merchant on the list (${roughRs(minValue)} a year) covers it ${times} times over.`
-  if (times === 1) return `Keeping even the smallest merchant on the list (${roughRs(minValue)} a year) covers it.`
-  return `Keeping any one merchant worth more than ${rs(cost)} a year covers it.`
+  if (times >= 2) return `a year. Keeping just this one covers all ${n} calls ${times} times over.`
+  if (times === 1) return `a year. Keeping just this one covers all ${n} calls.`
+  return `a year. Keeping one merchant worth more than ${rs(cost)} covers all ${n} calls.`
 }
 const now = () => new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
 const nameOf = (r: Row) => r.business_name ?? r.merchant_id
@@ -159,9 +159,9 @@ export default function App() {
           <Kpi label="Merchants at risk" value={S.at_risk} format={n => String(Math.round(n))} sub={`${S.imminent} critical`} delay={0} />
           <Kpi label="Annual revenue at risk" value={V.at_risk_value} format={rs} sub={`if all ${S.at_risk} declining merchants left`} delay={60} />
           <Kpi label={`Reached by the ${plural(calls.length, 'call')}`} value={V.call_list_value} format={rs} sub={calls.length ? `${pct(cover)} of the revenue at risk` : 'no calls needed'} delay={120} />
-          <div className="kpi rise" style={{ animationDelay: '180ms' }}><div className="kpi-label">Cost of the {plural(calls.length, 'call')}</div>
-            <div className="kpi-value">{calls.length ? rs(V.outreach_cost) : '–'}</div>
-            <div className="kpi-sub">{calls.length ? coverLine(money.min, V.outreach_cost) : 'no calls needed'} <button className="link" onClick={() => setHow(true)}>How?</button></div></div>
+          <div className="kpi rise" style={{ animationDelay: '180ms' }}><div className="kpi-label">Smallest merchant on the list</div>
+            <div className="kpi-value">{calls.length ? roughRs(money.min) : '–'}</div>
+            <div className="kpi-sub">{calls.length ? coverLine(money.min, V.outreach_cost, calls.length) : 'no calls needed'} <button className="link" onClick={() => setHow(true)}>How?</button></div></div>
         </div>
       </section>
 

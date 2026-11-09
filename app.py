@@ -71,7 +71,7 @@ h3 {color: inherit; margin-top: .6rem;}
 .kpi .value {white-space: nowrap;}
 .kpi .label, .tile .label {font-size: .86rem; opacity: .62; text-transform: uppercase; letter-spacing: .05em; font-weight: 600;}
 .kpi .value {font-size: 1.75rem; font-weight: 750; margin-top: 2px; color: #012652;}
-.kpi .sub {font-size: .95rem; opacity: .75; margin-top: 2px;}
+.kpi .sub {font-size: 1.08rem; opacity: .85; margin-top: 4px; line-height: 1.45;}
 .card {padding: 12px 14px; margin-bottom: 10px; box-shadow: 0 1px 6px rgba(1,38,82,.05);}
 .card.fix {border-left: 4px solid #0D94FB;}
 .tiles {display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 6px 0 10px 0;}
@@ -323,14 +323,13 @@ def rough_rs(x):
     return f"Rs {round(x / 1000) * 1000:,.0f}" if x < 1e5 else rs(x)
 
 
-def cover_line(min_value, cost):
+def cover_line(min_value, cost, n):
     times = int(min_value // cost) if cost else 0
     if times >= 2:
-        return f"Keeping even the smallest merchant on the list ({rough_rs(min_value)} a year) covers it {times} times over."
+        return f"a year. Keeping just this one covers all {n} calls {times} times over."
     if times == 1:
-        return f"Keeping even the smallest merchant on the list ({rough_rs(min_value)} a year) covers it."
-    return f"Keeping any one merchant worth more than {rs(cost)} a year covers it."
-ss.setdefault('decisions', {}); ss.setdefault('audit', []); ss.setdefault('review_decisions', {}); ss.setdefault('qa', {}); ss.setdefault('selected', None)
+        return f"a year. Keeping just this one covers all {n} calls."
+    return f"a year. Keeping one merchant worth more than {rs(cost)} covers all {n} calls."
 
 
 def log(action, merchant_id, detail=''):
@@ -390,8 +389,8 @@ with tab_work:
              ('Annual revenue at risk', rs(V['at_risk_value']), f"if all {S['at_risk']} declining merchants left"),
              (f"Reached by the {plural(len(calls), 'call')}", rs(V['call_list_value']) if len(calls) else '–',
               f"{cover:.0%} of the revenue at risk" if len(calls) else 'no calls needed'),
-             (f"Cost of the {plural(len(calls), 'call')}", rs(V['outreach_cost']) if len(calls) else '–',
-              cover_line(MONEY['min'], V['outreach_cost']) if len(calls) else 'no calls needed')]
+             ('Smallest merchant on the list', rough_rs(MONEY['min']) if len(calls) else '–',
+              cover_line(MONEY['min'], V['outreach_cost'], len(calls)) if len(calls) else 'no calls needed')]
     st.markdown('<div class="kpis">' + ''.join(f'<div class="kpi{" accent" if i == 0 else ""}"><div class="label">{lab}</div><div class="value">{val}</div>'
                                                f'<div class="sub">{sub}</div></div>' for i, (lab, val, sub) in enumerate(cards)) + '</div>', unsafe_allow_html=True)
 

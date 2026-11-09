@@ -31,7 +31,7 @@ h1, h2, h3 { letter-spacing: -.02em; margin: 0; }
 .kpi { background: var(--card); color: var(--ink); border-radius: var(--r); padding: 18px 20px; box-shadow: 0 8px 28px rgba(1, 38, 82, .16); border-top: 4px solid var(--blue); }
 .kpi-label { font-size: .82rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
 .kpi-value { font-size: clamp(1.35rem, 1.75vw, 1.9rem); font-weight: 800; color: var(--navy); margin: 4px 0 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.kpi-sub { color: var(--muted); font-size: .95rem; }
+.kpi-sub { color: #475467; font-size: 1.08rem; line-height: 1.45; margin-top: 4px; }
 
 /* ---------- layout */
 .main { padding: 56px var(--gutter) 40px; }
