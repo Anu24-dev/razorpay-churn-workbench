@@ -25,6 +25,15 @@ The app never sends anything. Approved messages are exported for the CSM to send
 
 **AI switch:** the sidebar toggle turns AI off completely (no calls to Claude). Stored AI results are still shown; anything else falls back to rule-based text.
 
+## Web version (Vercel)
+
+`web/` is the same workbench as a fast static site (React + TypeScript, built with Vite) for Vercel.
+
+- **Same decisions:** the engine is ported line by line to `web/src/engine/core.ts`. `npm run parity` (in `web/`) checks every decision against the Python engine on the data pack and three practice datasets; all match.
+- **Data pack:** results, saved AI drafts, summaries and answers are exported by `scripts/export_web.py` to `web/public/data/datapack.json`.
+- **Other files:** scored in the browser (nothing is uploaded); merchants get a simple starting message that follows the same rules. The experimental watch list is not computed for uploads (it never changes the calls).
+- **Deploy:** import the GitHub repo in Vercel and set the root directory to `web`. Vercel detects Vite; no settings or keys are needed.
+
 ## Run locally
 
 ```bash

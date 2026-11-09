@@ -8,3 +8,5 @@ data/*.tmp
 .DS_Store
 data/live_calls.json
 data/audit_log.csv
+web/node_modules/
+web/dist/
