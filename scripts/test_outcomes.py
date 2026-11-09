@@ -30,3 +30,15 @@ print(f"Calls: {len(calls)}, of which {calls.left.sum()} left. Yearly value reac
       f"of which Rs {calls.value_left.sum() / 1e5:.1f} lakh left.")
 missed = A[~A.declining & A.left]
 print(f"Leavers not flagged: {len(missed)}\n{missed.case.value_counts().to_string()}")
+
+# How well 15 calls per dataset are aimed, compared with simpler ways of picking them
+A['drop'] = A.tpv_m6_inr_lakh / A[['tpv_m1_inr_lakh', 'tpv_m2_inr_lakh', 'tpv_m3_inr_lakh']].mean(axis=1)
+PICKERS = {'This engine': lambda g: g[g.csm_call_list.astype(bool)],
+           'Biggest clients': lambda g: g.nlargest(15, 'yearly_value_rs'),
+           'Biggest volume drop': lambda g: g.nsmallest(15, 'drop'),
+           'Most support tickets': lambda g: g.sort_values(['unresolved_tickets', 'support_tickets_last_90d'], ascending=False).head(15),
+           'Random': lambda g: g.sample(15, random_state=0)}
+print('\nPicking rule            calls to leavers   leaving revenue reached')
+for name, pick in PICKERS.items():
+    p = pd.concat(pick(g) for _, g in A.groupby('dataset'))
+    print(f"{name:22s}  {p.left.sum():>3} of {len(p):<3}         {p.value_left.sum() / A.value_left.sum():.0%}")

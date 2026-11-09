@@ -14,13 +14,15 @@ type LogEntry = { time: string; by: string; merchant_id: string; action: string;
 
 const PRESETS: [string, string][] = [['Why are they on the list?', 'Why is this merchant on the call list?'],
   ['What should I focus on in the call?', 'What should I focus on in the call?'], ['What is not known yet?', 'What do we not know about this merchant?']]
-// Share of flagged merchants that did leave within 90 days, measured on 8 test datasets with known outcomes (1,200 merchants):
-// Critical 172 of 173, High and Moderate together 9 of 20 (High alone is only 6 merchants, so the two are pooled).
-const LEFT_IN_TESTS = { critical: 172 / 173, other: 9 / 20 }
-const leaveChance = (r: Row) => (r.imminent ? LEFT_IN_TESTS.critical : LEFT_IN_TESTS.other)
-// Share of would-be leavers a call keeps. Randomised trial where likely churners were listed to be called: churn fell 1.9 points from 17.2%
-// (Godinho de Matos, Ferreira & Belo, Marketing Science 2018). 30% is the default in churn-profit research (Verbraken et al. 2013), shown only as the optimistic case.
-const SAVE_RATE = 1.9 / 17.2, SAVE_RATE_OPTIMISTIC = 0.3
+// No saving figure: the data has no record of how many merchants a call keeps. The app shows what the calls cost against what
+// each merchant on the list is worth, and the explainer shows how well the calls were aimed in tests with known outcomes.
+const roughRs = (x: number) => (x < 1e5 ? `Rs ${(Math.round(x / 1000) * 1000).toLocaleString('en-IN')}` : rs(x))
+function coverLine(minValue: number, cost: number) {
+  const times = Math.floor(minValue / cost)
+  if (times >= 2) return `Keeping even the smallest merchant on the list (${roughRs(minValue)} a year) covers it ${times} times over.`
+  if (times === 1) return `Keeping even the smallest merchant on the list (${roughRs(minValue)} a year) covers it.`
+  return `Keeping any one merchant worth more than ${rs(cost)} a year covers it.`
+}
 const now = () => new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
 const nameOf = (r: Row) => r.business_name ?? r.merchant_id
 
@@ -118,11 +120,8 @@ export default function App() {
   if (!data) return <div className="loading"><div className="spinner" /><div>Loading this month's merchants…</div></div>
   const S = data.summary, V = data.value, PB = data.playbooks
   const cover = V.at_risk_value ? V.call_list_value / V.at_risk_value : 0
-  // Money chain: value reached by the calls -> value likely to leave (rates seen in tests) -> share a call keeps (published trial) -> minus call cost
-  const likelyLeave = calls.reduce((a, r) => a + leaveChance(r) * r.yearly_value_rs, 0)
-  const likelyLeaveAll = M.filter(r => r.declining).reduce((a, r) => a + leaveChance(r) * r.yearly_value_rs, 0)
-  const saving = likelyLeave * SAVE_RATE - V.outreach_cost, savingBest = likelyLeave * SAVE_RATE_OPTIMISTIC - V.outreach_cost
-  const money = { likelyLeave, likelyLeaveAll, saving, savingBest }
+  const values = calls.map(r => r.yearly_value_rs)
+  const money = { min: values.length ? Math.min(...values) : 0, max: values.length ? Math.max(...values) : 0 }
   const open = openId ? byId.get(openId) ?? null : null
   const callIdx = open ? calls.findIndex(r => r.merchant_id === open.merchant_id) : -1
 
@@ -160,9 +159,9 @@ export default function App() {
           <Kpi label="Merchants at risk" value={S.at_risk} format={n => String(Math.round(n))} sub={`${S.imminent} critical`} delay={0} />
           <Kpi label="Annual revenue at risk" value={V.at_risk_value} format={rs} sub={`if all ${S.at_risk} declining merchants left`} delay={60} />
           <Kpi label={`Reached by the ${plural(calls.length, 'call')}`} value={V.call_list_value} format={rs} sub={calls.length ? `${pct(cover)} of the revenue at risk` : 'no calls needed'} delay={120} />
-          <div className="kpi rise" style={{ animationDelay: '180ms' }}><div className="kpi-label">Likely saving from the calls</div>
-            <div className="kpi-value">{calls.length ? rs(saving) : '–'}</div>
-            <div className="kpi-sub">a year. {rs(likelyLeave)} of these merchants' revenue is likely to leave, and calls keep about 1 in 9 <button className="link" onClick={() => setHow(true)}>How?</button></div></div>
+          <div className="kpi rise" style={{ animationDelay: '180ms' }}><div className="kpi-label">Cost of the {plural(calls.length, 'call')}</div>
+            <div className="kpi-value">{calls.length ? rs(V.outreach_cost) : '–'}</div>
+            <div className="kpi-sub">{calls.length ? coverLine(money.min, V.outreach_cost) : 'no calls needed'} <button className="link" onClick={() => setHow(true)}>How?</button></div></div>
         </div>
       </section>
 
@@ -186,11 +185,6 @@ export default function App() {
             {calls.length > 0 && <>
               <div className="legend">
                 {(['1', '2', '3'] as const).map(k => <span key={k}><Pill tone={RISK[k].tone}>{RISK[k].label}</Pill>{RISK_HELP[k]}</span>)}
-              </div>
-              <div className="progress">
-                <div className="dots">{calls.map(r => { const d = decisions[r.merchant_id]; return <button key={r.merchant_id} title={nameOf(r)} onClick={() => setOpenId(r.merchant_id)}
-                  className={`dot ${d?.status === 'Approved' ? 'ok' : d?.status === 'Skipped' ? 'skip' : ''} ${!d && calls.find(c => !decisions[c.merchant_id])?.merchant_id === r.merchant_id ? 'next' : ''}`} /> })}</div>
-                <span><b>{done} of {calls.length} reviewed</b>{calls.filter(r => decisions[r.merchant_id]?.status === 'Approved').length ? ` · ${calls.filter(r => decisions[r.merchant_id]?.status === 'Approved').length} approved` : ''}</span>
               </div>
               {celebrated && <div className="celebrate rise"><Confetti /><b>All {calls.length} calls reviewed.</b> Approved messages are ready to send below.</div>}
               <div className="calls">
@@ -580,7 +574,7 @@ function UploadDrawer({ upload, isPack, onClose, onFile, onReset }: { upload: an
   )
 }
 
-function HowModal({ S, V, money, onClose }: { S: any; V: any; money: { likelyLeave: number; likelyLeaveAll: number; saving: number; savingBest: number }; onClose: () => void }) {
+function HowModal({ S, V, money, onClose }: { S: any; V: any; money: { min: number; max: number }; onClose: () => void }) {
   return (
     <div className="overlay center" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} role="dialog" aria-label="How these are picked">
@@ -589,26 +583,28 @@ function HowModal({ S, V, money, onClose }: { S: any; V: any; money: { likelyLea
         <ol className="how">
           <li><b>Yearly value.</b> 1% of the latest month's payment volume, times 12 (the data pack's rule).</li>
           <li><b>Revenue at risk, {rs(V.at_risk_value)}.</b> What we lose if every falling merchant leaves. This is the worst case.</li>
-          <li><b>Likely to leave, {rs(money.likelyLeave)} of the {rs(V.call_list_value)} on the calls.</b> We tested the engine on 8 datasets where we know who left. Almost every Critical merchant left, and about half of the others did (table below). We apply those rates to each merchant.</li>
-          <li><b>Likely saving, {rs(money.saving)} a year.</b> Test data cannot show what a call does, so this step comes from a published trial: calling likely leavers kept about 1 in 9 of them (Godinho de Matos, Ferreira and Belo, 2018). The calls cost {rs(V.outreach_cost)}, which is taken off.</li>
-          <li><b>Best case, {rs(money.savingBest)}.</b> If 3 in 10 calls work, the default used in churn research. This is not measured.</li>
+          <li><b>Reached by the calls, {rs(V.call_list_value)}.</b> The yearly value of the merchants on this month's calls.</li>
+          <li><b>Cost of the calls, {rs(V.outreach_cost)}.</b> Rs 1,500 of CSM time per call (the data pack's rule). The smallest merchant on the list is worth {roughRs(money.min)} a year and the largest {rs(money.max)}, so keeping any one of them pays for the month's calls.</li>
+          <li><b>Why there is no saving figure.</b> The data does not show how many merchants a call keeps, so we do not guess it. For reference, a published trial of calling likely leavers kept about 1 in 9 (Godinho de Matos, Ferreira and Belo, 2018, telecom customers).</li>
         </ol>
         <table className="how-table">
-          <thead><tr><th>In testing (8 datasets, 1,200 merchants)</th><th>Flagged</th><th>Left</th><th>Stayed</th></tr></thead>
+          <thead><tr><th>Tested on 8 datasets where we know who left (1,200 merchants)</th><th>Calls to merchants who left</th><th>Leaving revenue reached</th></tr></thead>
           <tbody>
-            <tr><td>Critical</td><td>173</td><td>172</td><td>1</td></tr>
-            <tr><td>High</td><td>6</td><td>2</td><td>4</td></tr>
-            <tr><td>Moderate</td><td>14</td><td>7</td><td>7</td></tr>
+            <tr><td><b>This engine</b></td><td><b>115 of 120</b></td><td><b>50%</b></td></tr>
+            <tr><td>Biggest clients</td><td>16 of 120</td><td>45%</td></tr>
+            <tr><td>Biggest volume drop</td><td>118 of 120</td><td>31%</td></tr>
+            <tr><td>Most support tickets</td><td>64 of 120</td><td>29%</td></tr>
+            <tr><td>Random</td><td>25 of 120</td><td>9%</td></tr>
           </tbody>
         </table>
-        <p className="how-note"><b>What this does not cover.</b> The test data is made up, so real leave rates may differ. The trial was with telecom customers, not merchants with a CSM, and outreach can backfire (Ascarza, Iyengar and Schleicher, 2016). Recording who stays after each call would replace the borrowed 1 in 9 with Razorpay's own figure.</p>
+        <p className="how-note">Most of the leaving revenue the calls miss belongs to merchants whose volume had not started falling within the six months of data. The test data is made up, so real results may differ. Recording who stays after each call would show what the calls are worth.</p>
         <h3 className="how-h">How the calls are picked</h3>
         <ol className="how">
           <li><b>Falling.</b> Payment volume is down more than {pct(Math.abs(S.decline_line), 1)} and hasn't picked up. Normal monthly swings are about {pct(S.typical_wobble, 1)}, so small dips are ignored.</li>
           <li><b>Risk level.</b> <i>Critical</i>: at this rate, half the volume is gone by month 9. <i>High</i>: falling, and the contract renews within 90 days. <i>Moderate</i>: falling, but slower.</li>
           <li><b>Main reason.</b> Success rate, open tickets, support rating, logins and products used, compared with other merchants. If nothing stands out, we assume pricing and confirm it on the call.</li>
           <li><b>Playbook.</b> One of the six in the data pack, matched to the main reason. Merchant size decides who runs it.</li>
-          <li><b>Order.</b> Urgent, fixable, high-value merchants come first. Critical counts double, which matches the tests above. The order is re-checked 11 ways, and <i>Close call</i> means the merchant drops out in some of them.</li>
+          <li><b>Order.</b> Urgent, fixable, high-value merchants come first. Critical counts double: in tests, 172 of 173 Critical merchants left, against 9 of 20 others. The order is re-checked 11 ways, and <i>Close call</i> means the merchant drops out in some of them.</li>
           <li><b>AI's role.</b> AI writes the drafts and checks translations. It does not pick the list, and a CSM approves every message.</li>
         </ol>
       </div>

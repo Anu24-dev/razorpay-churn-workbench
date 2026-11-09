@@ -314,12 +314,22 @@ by_id = df.set_index('merchant_id', drop=False)
 calls = df[df.csm_call_list].sort_values('revenue_rank')
 review = df[df.declining & df.needs_person].sort_values('revenue_rank')
 V, S = res['value'], res['summary']
-# Money chain: value reached -> value likely to leave (rates seen in 8 test datasets with known outcomes: Critical 172 of 173,
-# High and Moderate 9 of 20) -> share a call keeps (randomised trial: churn fell 1.9 points from 17.2%, Godinho de Matos,
-# Ferreira & Belo, Marketing Science 2018) -> minus call cost. 3 in 10 (Verbraken et al. 2013 default) is the best case only.
-LEFT_IN_TESTS = {True: 172 / 173, False: 9 / 20}
-_likely = float((calls.imminent.map(LEFT_IN_TESTS) * calls.yearly_value_rs).sum()) if len(calls) else 0.0
-MONEY = {'likely_leave': _likely, 'saving': _likely * 1.9 / 17.2 - V['outreach_cost'], 'saving_best': _likely * 0.3 - V['outreach_cost']}
+# No saving figure: the data has no record of how many merchants a call keeps. Show the cost of the calls against what each
+# merchant on the list is worth; the explainer shows how well the calls were aimed in tests with known outcomes.
+MONEY = {'min': float(calls.yearly_value_rs.min()) if len(calls) else 0.0, 'max': float(calls.yearly_value_rs.max()) if len(calls) else 0.0}
+
+
+def rough_rs(x):
+    return f"Rs {round(x / 1000) * 1000:,.0f}" if x < 1e5 else rs(x)
+
+
+def cover_line(min_value, cost):
+    times = int(min_value // cost) if cost else 0
+    if times >= 2:
+        return f"Keeping even the smallest merchant on the list ({rough_rs(min_value)} a year) covers it {times} times over."
+    if times == 1:
+        return f"Keeping even the smallest merchant on the list ({rough_rs(min_value)} a year) covers it."
+    return f"Keeping any one merchant worth more than {rs(cost)} a year covers it."
 ss.setdefault('decisions', {}); ss.setdefault('audit', []); ss.setdefault('review_decisions', {}); ss.setdefault('qa', {}); ss.setdefault('selected', None)
 
 
@@ -338,20 +348,22 @@ def how_we_pick():
 
 1. **Yearly value.** 1% of the latest month's payment volume, times 12 (the data pack's rule).
 2. **Revenue at risk, {rs(V['at_risk_value'])}.** What we lose if every falling merchant leaves. This is the worst case.
-3. **Likely to leave, {rs(MONEY['likely_leave'])} of the {rs(V['call_list_value'])} on the calls.** We tested the engine on 8 datasets where we know who left.
-Almost every Critical merchant left, and about half of the others did (table below). We apply those rates to each merchant.
-4. **Likely saving, {rs(MONEY['saving'])} a year.** Test data cannot show what a call does, so this step comes from a published trial:
-calling likely leavers kept about 1 in 9 of them (Godinho de Matos, Ferreira and Belo, 2018). The calls cost {rs(V['outreach_cost'])}, which is taken off.
-5. **Best case, {rs(MONEY['saving_best'])}.** If 3 in 10 calls work, the default used in churn research. This is not measured.
+3. **Reached by the calls, {rs(V['call_list_value'])}.** The yearly value of the merchants on this month's calls.
+4. **Cost of the calls, {rs(V['outreach_cost'])}.** Rs 1,500 of CSM time per call (the data pack's rule). The smallest merchant on the list is worth
+{rough_rs(MONEY['min'])} a year and the largest {rs(MONEY['max'])}, so keeping any one of them pays for the month's calls.
+5. **Why there is no saving figure.** The data does not show how many merchants a call keeps, so we do not guess it. For reference, a published trial
+of calling likely leavers kept about 1 in 9 (Godinho de Matos, Ferreira and Belo, 2018, telecom customers).
 
-| In testing (8 datasets, 1,200 merchants) | Flagged | Left | Stayed |
-|---|---:|---:|---:|
-| Critical | 173 | 172 | 1 |
-| High | 6 | 2 | 4 |
-| Moderate | 14 | 7 | 7 |
+| Tested on 8 datasets where we know who left (1,200 merchants) | Calls to merchants who left | Leaving revenue reached |
+|---|---:|---:|
+| **This engine** | **115 of 120** | **50%** |
+| Biggest clients | 16 of 120 | 45% |
+| Biggest volume drop | 118 of 120 | 31% |
+| Most support tickets | 64 of 120 | 29% |
+| Random | 25 of 120 | 9% |
 
-**What this does not cover.** The test data is made up, so real leave rates may differ. The trial was with telecom customers, not merchants with a CSM,
-and outreach can backfire (Ascarza, Iyengar and Schleicher, 2016). Recording who stays after each call would replace the borrowed 1 in 9 with Razorpay's own figure.
+Most of the leaving revenue the calls miss belongs to merchants whose volume had not started falling within the six months of data.
+The test data is made up, so real results may differ. Recording who stays after each call would show what the calls are worth.
 
 **How the calls are picked**
 
@@ -359,7 +371,7 @@ and outreach can backfire (Ascarza, Iyengar and Schleicher, 2016). Recording who
 2. **Risk level.** *Critical*: at this rate, half the volume is gone by month 9. *High*: falling, and the contract renews within 90 days. *Moderate*: falling, but slower.
 3. **Main reason.** Success rate, open tickets, support rating, logins and products used, compared with other merchants. If nothing stands out, we assume pricing and confirm it on the call.
 4. **Playbook.** One of the six in the data pack, matched to the main reason. Merchant size decides who runs it.
-5. **Order.** Urgent, fixable, high-value merchants come first. Critical counts double, which matches the tests above. The order is re-checked 11 ways, and *Close call* means the merchant drops out in some of them.
+5. **Order.** Urgent, fixable, high-value merchants come first. Critical counts double: in tests, 172 of 173 Critical merchants left, against 9 of 20 others. The order is re-checked 11 ways, and *Close call* means the merchant drops out in some of them.
 6. **AI's role.** AI writes the drafts and checks translations. It does not pick the list, and a CSM approves every message.
 """)
 
@@ -374,13 +386,12 @@ tab_work, tab_why = st.tabs(["This month's calls", 'Not flagged'])
 # ================================================================== YOUR CALLS
 with tab_work:
     cover = V['call_list_value'] / V['at_risk_value'] if V['at_risk_value'] else 0
-    saving = MONEY['saving']
     cards = [('Merchants at risk', f"{S['at_risk']}", f"{S['imminent']} critical"),
              ('Annual revenue at risk', rs(V['at_risk_value']), f"if all {S['at_risk']} declining merchants left"),
              (f"Reached by the {plural(len(calls), 'call')}", rs(V['call_list_value']) if len(calls) else '–',
               f"{cover:.0%} of the revenue at risk" if len(calls) else 'no calls needed'),
-             ('Likely saving from the calls', rs(saving) if len(calls) else '–',
-              f"a year. {rs(MONEY['likely_leave'])} of these merchants' revenue is likely to leave, and calls keep about 1 in 9")]
+             (f"Cost of the {plural(len(calls), 'call')}", rs(V['outreach_cost']) if len(calls) else '–',
+              cover_line(MONEY['min'], V['outreach_cost']) if len(calls) else 'no calls needed')]
     st.markdown('<div class="kpis">' + ''.join(f'<div class="kpi{" accent" if i == 0 else ""}"><div class="label">{lab}</div><div class="value">{val}</div>'
                                                f'<div class="sub">{sub}</div></div>' for i, (lab, val, sub) in enumerate(cards)) + '</div>', unsafe_allow_html=True)
 
@@ -432,11 +443,6 @@ with tab_work:
     def status_of(mid):
         d = ss.decisions.get((file_id, mid))
         return STATUS_LABEL.get(d['status'], d['status']) if d else 'To review'
-    n_ok = sum(1 for m in calls.merchant_id if (ss.decisions.get((file_id, m)) or {}).get('status') == 'Approved')
-    n_skip = sum(1 for m in calls.merchant_id if (ss.decisions.get((file_id, m)) or {}).get('status') == 'Not this month')
-    if len(calls):
-        st.progress((n_ok + n_skip) / max(len(calls), 1),
-                    text=f"**{n_ok + n_skip} of {len(calls)} done**" + (f" · {n_ok} approved" if n_ok else '') + (f" · {n_skip} skipped" if n_skip else ''))
     tbl = pd.DataFrame({
         '#': calls.revenue_rank.astype(int).values,
         'Merchant': calls.get('business_name', calls.merchant_id).values,
@@ -455,8 +461,10 @@ with tab_work:
     else:
         left, right = st.container(), st.container()
     with left:
+        approved = tbl['Status'].eq(STATUS_LABEL['Approved'])
+        shown = tbl.style.apply(lambda row: ['background-color: #E6F6EE; color: #12804A' if approved[row.name] else '' for _ in row], axis=1)
         sel = None if len(tbl) == 0 else st.dataframe(
-            tbl, hide_index=True, width='stretch', on_select='rerun', selection_mode='single-row', key=f'calls-{file_id}',
+            shown, hide_index=True, width='stretch', on_select='rerun', selection_mode='single-row', key=f'calls-{file_id}',
             height=ROW_H * (len(tbl) + 1) + 4, row_height=ROW_H,
             column_order=(['#', 'Merchant', 'Why', 'Status'] if has_sel else ['#', 'Merchant', 'Risk', 'Why', 'Plan', 'Renews in', 'Pick', 'Status']),
             column_config={'#': st.column_config.NumberColumn(width=36), 'Merchant': st.column_config.TextColumn(width=150),

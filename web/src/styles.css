@@ -103,7 +103,7 @@ h1, h2, h3 { letter-spacing: -.02em; margin: 0; }
 .call:last-child { border-bottom: 0; }
 .call:hover { background: #F7FBFF; }
 .call.sel { background: var(--blue-soft); box-shadow: inset 4px 0 0 var(--blue); }
-.call.is-ok { background: #FAFEFB; } .call.is-skip { opacity: .65; }
+.call.is-ok { background: var(--green-soft); box-shadow: inset 4px 0 0 var(--green); } .call.is-ok:hover { background: #D9F1E4; } .call.is-skip { opacity: .65; }
 .rank { font-weight: 700; color: var(--muted); text-align: center; }
 .mname b { display: block; } .mname small { color: var(--muted); }
 .pb { font-weight: 700; color: var(--blue-d); }
@@ -278,6 +278,6 @@ select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px r
 .how-h { font-size: 1rem; margin: 6px 0 -2px; color: var(--navy); }
 .how-table { width: 100%; border-collapse: collapse; margin: 14px 0 6px; font-size: .9rem; }
 .how-table th, .how-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line, #e3e8ef); }
-.how-table th:not(:first-child), .how-table td:not(:first-child) { text-align: right; width: 70px; }
+.how-table th:not(:first-child), .how-table td:not(:first-child) { text-align: right; width: 120px; }
 .how-table th { color: var(--muted, #5b6b82); font-weight: 600; }
 .how-note { font-size: .9rem; color: var(--muted, #5b6b82); margin: 10px 0 4px; line-height: 1.5; }
