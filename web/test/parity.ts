@@ -6,7 +6,7 @@ const COLS = ['tier', 'driver_main', 'driver_second', 'signal_to_watch', 'playbo
   'call_list_status', 'call_this_week', 'automated_track', 'am_alert', 'why_group', 'declining', 'imminent', 'possible_decline', 'bounced_dip', 'growing']
 const NUM = ['expected_saving_rs', 'projected_loss_m9', 'yearly_value_rs', 'tpv_change', 'fam_performance', 'fam_service', 'fam_engagement']
 let failures = 0
-for (const name of ['datapack', 'seed13', 'seed14', 'seed15']) {
+for (const name of ['datapack', 'seed13', 'seed14', 'seed15', 'anu_synthetic']) {
   const fx = JSON.parse(readFileSync(new URL(`./fixtures/${name}.json`, import.meta.url), 'utf8'))
   const res = run(fx.input)
   if (!res.ok) { console.log(name, 'REFUSED', res.checks); failures++; continue }
