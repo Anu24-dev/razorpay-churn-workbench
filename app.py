@@ -339,9 +339,12 @@ If none stands out, the likely cause is pricing, to be confirmed on the call. Ac
 
 **4. Playbook.** One of the six playbooks in the data pack, matched to the main reason. Merchant size decides who runs it.
 
-**5. Ranking.** Chance of leaving × chance a call retains the merchant × annual revenue, minus Rs 1,500 per call.
-Retention chances are estimates (60% for payment failures and support issues, 40% for pricing, 30% for low engagement), so the list is re-checked under 11 sets of estimates.
+**5. Ranking.** Urgency × how fixable the cause is × annual revenue, minus Rs 1,500 per call. Critical merchants count fully and others half, because they are losing volume faster.
+Fixability is an estimate (payment failures and support issues highest, then pricing, then low engagement). These weights only set the order, not the money figures, and the list is re-checked under 11 sets of them.
 *Close call* marks merchants that drop out of the top 15 under some of them.
+
+**Money.** Revenue at risk is the annual value of every declining merchant (the data pack's rule: 12 months at 1% of the latest month's volume), as if all of them left.
+The likely saving uses what testing showed (88 of 96 flagged merchants did leave) and a range of 1 to 3 in 10 calls keeping the merchant, because the data has no outcomes. The cost of the calls is taken off.
 
 **Role of AI.** AI drafts the summaries and messages and checks translations. It does not decide who is on the list. Every message is approved by a CSM before it is sent.
 """)
@@ -357,10 +360,14 @@ tab_work, tab_why = st.tabs(["This month's calls", 'Not flagged'])
 # ================================================================== YOUR CALLS
 with tab_work:
     cover = V['call_list_value'] / V['at_risk_value'] if V['at_risk_value'] else 0
+    # Saving: 88 of 96 flagged merchants left in testing (four answer-key datasets); a call keeps 1 to 3 in 10 (unknown, so a range)
+    lo, hi = (V['call_list_value'] * 88 / 96 * r - V['outreach_cost'] for r in (0.1, 0.3))
     cards = [('Merchants at risk', f"{S['at_risk']}", f"{S['imminent']} critical"),
-             ('Annual revenue at risk', rs(V['at_risk_value']), 'net revenue, at 1% of payment volume'),
-             (f"Covered by this month's {plural(len(calls), 'call')}", rs(V['call_list_value']) if len(calls) else '–',
-              f"{cover:.0%} of annual revenue at risk" if len(calls) else 'no calls needed')]
+             ('Annual revenue at risk', rs(V['at_risk_value']), f"if all {S['at_risk']} declining merchants left"),
+             (f"Reached by the {plural(len(calls), 'call')}", rs(V['call_list_value']) if len(calls) else '–',
+              f"{cover:.0%} of the revenue at risk" if len(calls) else 'no calls needed'),
+             ('Likely saving from the calls', f"Rs {lo / 1e5:.1f}–{hi / 1e5:.1f} lakh" if len(calls) else '–',
+              'a year, if 1 to 3 in 10 calls keep the merchant (9 in 10 flagged merchants left in testing)')]
     st.markdown('<div class="kpis">' + ''.join(f'<div class="kpi{" accent" if i == 0 else ""}"><div class="label">{lab}</div><div class="value">{val}</div>'
                                                f'<div class="sub">{sub}</div></div>' for i, (lab, val, sub) in enumerate(cards)) + '</div>', unsafe_allow_html=True)
 

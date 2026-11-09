@@ -14,6 +14,7 @@ type LogEntry = { time: string; by: string; merchant_id: string; action: string;
 
 const PRESETS: [string, string][] = [['Why are they on the list?', 'Why is this merchant on the call list?'],
   ['What should I focus on in the call?', 'What should I focus on in the call?'], ['What is not known yet?', 'What do we not know about this merchant?']]
+const TESTED_LEAVE_RATE = 88 / 96   // share of flagged (declining) merchants that did leave, across four datasets with answer keys
 const now = () => new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
 const nameOf = (r: Row) => r.business_name ?? r.merchant_id
 
@@ -111,6 +112,8 @@ export default function App() {
   if (!data) return <div className="loading"><div className="spinner" /><div>Loading this month's merchants…</div></div>
   const S = data.summary, V = data.value, PB = data.playbooks
   const cover = V.at_risk_value ? V.call_list_value / V.at_risk_value : 0
+  // Saving: 9 in 10 flagged merchants left in testing (88 of 96 across four answer-key datasets); a call keeps 1 to 3 in 10 of them (unknown, so a range)
+  const saveLow = V.call_list_value * TESTED_LEAVE_RATE * 0.1 - V.outreach_cost, saveHigh = V.call_list_value * TESTED_LEAVE_RATE * 0.3 - V.outreach_cost
   const open = openId ? byId.get(openId) ?? null : null
   const callIdx = open ? calls.findIndex(r => r.merchant_id === open.merchant_id) : -1
 
@@ -146,8 +149,11 @@ export default function App() {
         </div>
         <div className="kpis">
           <Kpi label="Merchants at risk" value={S.at_risk} format={n => String(Math.round(n))} sub={`${S.imminent} critical`} delay={0} />
-          <Kpi label="Annual revenue at risk" value={V.at_risk_value} format={rs} sub="net revenue, at 1% of payment volume" delay={80} />
-          <Kpi label={`Covered by this month's ${plural(calls.length, 'call')}`} value={V.call_list_value} format={rs} sub={calls.length ? `${pct(cover)} of annual revenue at risk` : 'no calls needed'} delay={160} />
+          <Kpi label="Annual revenue at risk" value={V.at_risk_value} format={rs} sub={`if all ${S.at_risk} declining merchants left`} delay={60} />
+          <Kpi label={`Reached by the ${plural(calls.length, 'call')}`} value={V.call_list_value} format={rs} sub={calls.length ? `${pct(cover)} of the revenue at risk` : 'no calls needed'} delay={120} />
+          <div className="kpi rise" style={{ animationDelay: '180ms' }}><div className="kpi-label">Likely saving from the calls</div>
+            <div className="kpi-value">{calls.length ? `${rs(saveLow).replace(' lakh', '')}–${rs(saveHigh).replace('Rs ', '')}` : '–'}</div>
+            <div className="kpi-sub">a year, if 1 to 3 in 10 calls keep the merchant <button className="link" onClick={() => setHow(true)}>How?</button></div></div>
         </div>
       </section>
 
@@ -215,7 +221,7 @@ export default function App() {
 
       {drawer && <UploadDrawer upload={upload} isPack={data.isPack} onClose={() => setDrawer(false)} onFile={onFile}
         onReset={() => { if (pack) { setData(pack); setOpenId(null); setUpload({ state: 'idle' }); toast('Back to the data pack'); setDrawer(false) } }} />}
-      {how && <HowModal S={S} onClose={() => setHow(false)} />}
+      {how && <HowModal S={S} V={V} onClose={() => setHow(false)} />}
       <div className="toasts">{toasts.map(t => <div key={t.id} className="toast">{t.text}</div>)}</div>
     </div>
   )
@@ -565,17 +571,25 @@ function UploadDrawer({ upload, isPack, onClose, onFile, onReset }: { upload: an
   )
 }
 
-function HowModal({ S, onClose }: { S: any; onClose: () => void }) {
+function HowModal({ S, V, onClose }: { S: any; V: any; onClose: () => void }) {
   return (
     <div className="overlay center" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} role="dialog" aria-label="How these are picked">
         <div className="drawer-head"><h2>How these are picked</h2><button className="icon close" onClick={onClose} aria-label="Close">✕</button></div>
+        <h3 className="how-h">How the money is worked out</h3>
+        <ol className="how">
+          <li><b>Annual value of a merchant.</b> The data pack's rule: 12 months of net revenue at the latest month's volume, with net revenue at 1% of payment volume.</li>
+          <li><b>Revenue at risk ({rs(V.at_risk_value)}).</b> The annual value of every declining merchant, as if all of them left.</li>
+          <li><b>Reached by the calls ({rs(V.call_list_value)}).</b> The annual value of the merchants on this month's calls.</li>
+          <li><b>Likely saving ({rs(V.call_list_value * TESTED_LEAVE_RATE * 0.1 - V.outreach_cost)} to {rs(V.call_list_value * TESTED_LEAVE_RATE * 0.3 - V.outreach_cost)} a year).</b> In testing on four datasets with answer keys, 88 of 96 flagged merchants did leave, so about 9 in 10. How many a call keeps is not known, because the data has no outcomes, so the range assumes 1 to 3 in 10. The cost of the calls, {rs(V.outreach_cost)}, is taken off. Each call pays for itself if about 2 in 100 calls work.</li>
+        </ol>
+        <h3 className="how-h">How the calls are picked</h3>
         <ol className="how">
           <li><b>Declining.</b> Payment volume over the last three months is more than {pct(Math.abs(S.decline_line), 1)} below the first three months, and it has not recovered. That threshold is three times the normal month-to-month variation ({pct(S.typical_wobble, 1)}), so ordinary ups and downs are not flagged.</li>
           <li><b>Risk level.</b> <i>Critical</i>: on the current trend, more than half of the volume is gone within about 90 days (by month 9). <i>High</i>: declining, and the contract renews within 90 days. <i>Moderate</i>: declining, but not yet on track to lose half.</li>
           <li><b>Main reason.</b> Each merchant's payment success rate, unresolved tickets, support rating, logins and products used are compared with all other merchants. If none stands out, the likely cause is pricing, to be confirmed on the call. Account manager notes support this but do not decide it.</li>
           <li><b>Playbook.</b> One of the six playbooks in the data pack, matched to the main reason. Merchant size decides who runs it.</li>
-          <li><b>Ranking.</b> Chance of leaving × chance a call retains the merchant × annual revenue, minus Rs 1,500 per call. Retention chances are estimates (60% for payment failures and support issues, 40% for pricing, 30% for low engagement), so the list is re-checked under 11 sets of estimates. <i>Close call</i> marks merchants that drop out of the top 15 under some of them.</li>
+          <li><b>Ranking.</b> Merchants are ranked by urgency × how fixable the cause is × annual revenue, minus Rs 1,500 per call. Critical merchants count fully and others half, because they are losing volume faster. Fixability is an estimate (payment failures and support issues highest, then pricing, then low engagement). These weights only set the order, not the money figures above, and the list is re-checked under 11 different sets of them. <i>Close call</i> marks merchants that drop out of the top 15 under some.</li>
           <li><b>Role of AI.</b> AI drafts the summaries and messages and checks translations. It does not decide who is on the list. Every message is approved by a CSM before it is sent.</li>
         </ol>
       </div>

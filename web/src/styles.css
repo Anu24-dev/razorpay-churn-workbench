@@ -27,10 +27,10 @@ h1, h2, h3 { letter-spacing: -.02em; margin: 0; }
 .eyebrow { font-size: .8rem; letter-spacing: .12em; text-transform: uppercase; color: #9CC9FF; font-weight: 600; }
 .hero h1 { font-size: 2.1rem; font-weight: 800; margin: 4px 0 6px; }
 .hero p { margin: 0; max-width: 760px; color: #D6E6FF; font-size: 1.05rem; }
-.kpis { margin: 24px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; transform: translateY(28px); }
+.kpis { margin: 24px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; transform: translateY(28px); }
 .kpi { background: var(--card); color: var(--ink); border-radius: var(--r); padding: 18px 20px; box-shadow: 0 8px 28px rgba(1, 38, 82, .16); border-top: 4px solid var(--blue); }
 .kpi-label { font-size: .82rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
-.kpi-value { font-size: 2rem; font-weight: 800; color: var(--navy); margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+.kpi-value { font-size: clamp(1.35rem, 1.75vw, 1.9rem); font-weight: 800; color: var(--navy); margin: 4px 0 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .kpi-sub { color: var(--muted); font-size: .95rem; }
 
 /* ---------- layout */
@@ -273,3 +273,6 @@ select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px r
 .am-note .label { display: block; font-style: normal; }
 .am-note.hot { border-left-color: #F59E0B; background: var(--amber-soft); }
 .confirm .select-wrap { margin-top: auto; padding-top: 6px; }
+
+.link { background: none; border: 0; padding: 0; color: var(--blue-d); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.how-h { font-size: 1rem; margin: 6px 0 -2px; color: var(--navy); }
