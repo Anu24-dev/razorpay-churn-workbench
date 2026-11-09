@@ -4,6 +4,7 @@ import { RISK, RISK_HELP, risk, tierKey, DRIVER_NAME, FIX, PICK, channelFor, SEN
   GROUPS, callQuestions, templateDraft } from './lib/text'
 import { checkEdit } from './lib/guard'
 import { readMerchants, DataError, downloadCsv, store } from './lib/io'
+import { liveAvailable, draftWithRetry, answerQuestion, type Draft } from './lib/ai'
 
 type AI = { note_category?: string; reason?: string; qa?: Record<string, string>
   draft?: { main_language: string; regional_language?: string; english: { subject?: string; message: string }; regional?: { subject?: string; message: string } | null; passed: boolean; checks: [string, boolean, string][] } }
@@ -75,7 +76,16 @@ export default function App() {
   const done = calls.filter(r => decisions[r.merchant_id] && decisions[r.merchant_id].status !== 'Rewriting').length
   const [aiOn, setAiOn] = useState<boolean>(() => store.get('rzp-retention:ai-on', true))
   useEffect(() => store.set('rzp-retention:ai-on', aiOn), [aiOn])
-  const ai = (id: string): AI => (aiOn ? data?.ai?.[id] ?? {} : {})
+  const [live, setLive] = useState(false)
+  useEffect(() => { liveAvailable().then(setLive) }, [])
+  const [liveDrafts, setLiveDrafts] = useState<Record<string, Draft>>({})
+  useEffect(() => { if (key) setLiveDrafts(store.get(key + ':drafts', {})) }, [key])
+  useEffect(() => { if (key) store.set(key + ':drafts', liveDrafts) }, [key, liveDrafts])
+  const ai = (id: string): AI => {
+    if (!aiOn) return {}
+    const saved = data?.ai?.[id] ?? {}
+    return liveDrafts[id] ? { ...saved, draft: liveDrafts[id] as any } : saved
+  }
 
   useEffect(() => {
     if (calls.length && done === calls.length && !celebrated) { setCelebrated(true); toast(`All ${calls.length} calls reviewed. Nice work.`) }
@@ -123,7 +133,7 @@ export default function App() {
           <span className="file-chip" title={data.file}>Data: {data.isPack ? 'Build-a-thon data pack' : data.file} · {M.length} merchants</span>
           <button className={`ai-switch ${aiOn ? 'on' : ''}`} role="switch" aria-checked={aiOn} onClick={() => { setAiOn(!aiOn); toast(aiOn ? 'AI off: showing rule-based messages only' : 'AI on: showing Claude-written drafts and summaries') }}
             title="On: drafts, summaries and answers written by Claude and checked by code. Off: rule-based content only.">
-            <span className="knob" /><span>AI {aiOn ? 'on' : 'off'}</span></button>
+            <span className="knob" /><span>AI {aiOn ? (live ? 'on · live' : 'on') : 'off'}</span></button>
           <button className="btn btn-upload" onClick={() => setDrawer(true)}><span aria-hidden>⤒</span> Upload data</button>
         </div>
       </header>
@@ -195,7 +205,8 @@ export default function App() {
 
       <footer className="footer">Built for the Razorpay Campus AI Build-a-thon · synthetic data from the build-a-thon data pack · nothing is sent from this app</footer>
 
-      {open && <Panel key={open.merchant_id} r={open} ai={ai(open.merchant_id)} PB={PB} isPack={data.isPack} aiOn={aiOn} decision={decisions[open.merchant_id]}
+      {open && <Panel key={open.merchant_id} r={open} ai={ai(open.merchant_id)} PB={PB} isPack={data.isPack} aiOn={aiOn} live={live && aiOn}
+        onDraft={(d: Draft) => { setLiveDrafts(x => ({ ...x, [open.merchant_id]: d })); addLog(open.merchant_id, 'AI draft written', d.passed ? 'passed all checks' : 'stopped by a check') }} decision={decisions[open.merchant_id]}
         idx={callIdx} total={calls.length} nextUp={nextUp} decisions={decisions} calls={calls}
         onClose={() => setOpenId(null)} onPrev={() => callIdx > 0 && setOpenId(calls[callIdx - 1].merchant_id)} onNext={() => callIdx < calls.length - 1 && setOpenId(calls[callIdx + 1].merchant_id)}
         onDecide={(d, action, detail) => { decide(open.merchant_id, d, action, detail)
@@ -247,7 +258,7 @@ function Insights({ M }: { M: Row[] }) {
 }
 
 // ---------------------------------------------------------------- the merchant panel
-function Panel(p: { r: Row; ai: AI; PB: Record<string, Playbook>; isPack: boolean; aiOn: boolean; decision?: Decision; idx: number; total: number; nextUp: Row[]; decisions: Record<string, Decision>; calls: Row[]
+function Panel(p: { r: Row; ai: AI; PB: Record<string, Playbook>; isPack: boolean; aiOn: boolean; live: boolean; onDraft: (d: Draft) => void; decision?: Decision; idx: number; total: number; nextUp: Row[]; decisions: Record<string, Decision>; calls: Row[]
   onClose: () => void; onPrev: () => void; onNext: () => void; onDecide: (d: Decision | null, action: string, detail?: string) => void }) {
   const { r, ai, PB } = p
   const [tab, setTab] = useState<'why' | 'msg' | 'trend' | 'ask'>(p.decision ? 'msg' : 'why')
@@ -292,11 +303,11 @@ function Panel(p: { r: Row; ai: AI; PB: Record<string, Playbook>; isPack: boolea
               ['Last support rating', r.last_csat_1_to_5 == null ? '–' : `${Math.round(r.last_csat_1_to_5)} out of 5`], ['Logins this month', String(r.logins_last_30d)],
               ['Products used', String(r.products_used)], ['Annual revenue', rs(r.yearly_value_rs)]].map(([l, v]) => <div key={l} className="tile"><div className="label">{l}</div><b>{v}</b></div>)}</div></Collapse>
           </div>}
-          {tab === 'msg' && <Message key={String(p.aiOn)} {...p} />}
+          {tab === 'msg' && <Message key={`${p.aiOn}-${Boolean(ai.draft)}`} {...p} />}
           {tab === 'trend' && <Trend r={r} />}
           {tab === 'ask' && <div className="fade">
             <p className="muted small">Answers use only this merchant's data, and say so when the data is silent.</p>
-            <Ask ai={ai} isPack={p.isPack} aiOn={p.aiOn} />
+            <Ask ai={ai} isPack={p.isPack} aiOn={p.aiOn} live={p.live} r={r} playbookName={PB[r.playbook_id].name} />
           </div>}
         </div>
       </aside>
@@ -304,7 +315,7 @@ function Panel(p: { r: Row; ai: AI; PB: Record<string, Playbook>; isPack: boolea
   )
 }
 
-function Message(p: { r: Row; ai: AI; aiOn?: boolean; decision?: Decision; nextUp: Row[]; decisions: Record<string, Decision>; onDecide: (d: Decision | null, action: string, detail?: string) => void }) {
+function Message(p: { r: Row; ai: AI; aiOn?: boolean; live?: boolean; onDraft?: (d: Draft) => void; decision?: Decision; nextUp: Row[]; decisions: Record<string, Decision>; onDecide: (d: Decision | null, action: string, detail?: string) => void }) {
   const { r, ai, decision } = p
   const versions = useMemo(() => {
     const v: Record<string, string> = {}
@@ -324,6 +335,14 @@ function Message(p: { r: Row; ai: AI; aiOn?: boolean; decision?: Decision; nextU
   const [why, setWhy] = useState('Wrong cause or playbook')
   const [next, setNext] = useState<'rewrite' | 'skip'>('rewrite')
   const [stamp, setStamp] = useState(false)
+  const [writing, setWriting] = useState<string[] | null>(null)
+  const [aiError, setAiError] = useState<string | null>(null)
+  async function writeWithAI() {
+    setWriting([]); setAiError(null)
+    try { const d = await draftWithRetry(r, m => setWriting(w => [...(w ?? []), m])); p.onDraft?.(d) }
+    catch (e: any) { setAiError(e.message ?? 'The AI request failed.') }
+    finally { setWriting(null) }
+  }
   const text = texts[lang]
   const edited = text.trim() !== versions[lang].trim()
   const checks = ai.draft?.checks ?? []
@@ -360,7 +379,10 @@ function Message(p: { r: Row; ai: AI; aiOn?: boolean; decision?: Decision; nextU
       <p className="muted small">{channelFor(r.segment)}. The language is based on their city, so confirm it with the merchant first.</p>
       {decision?.status === 'Rewriting' && <div className="note info">You are rewriting this one. Edit the message, then approve it.</div>}
       {ai.draft && !ai.draft.passed && <div className="note bad">The safety checks stopped this draft. Rewrite it below, then approve it.</div>}
-      {!ai.draft && <div className="note info">{p.aiOn === false ? 'AI is off, so this is a rule-based starting message.' : 'No AI draft for this merchant.'} It follows the same rules: no numbers, no promises.</div>}
+      {!ai.draft && <div className="note info">{p.aiOn === false ? 'AI is off, so this is a rule-based starting message.' : 'No AI draft for this merchant yet.'} It follows the same rules: no numbers, no promises.
+        {p.live && !writing && <div className="row"><button className="btn btn-primary" onClick={writeWithAI}>Write it with AI</button><span className="muted small">About a minute. Every check runs before you see it.</span></div>}</div>}
+      {writing && <div className="note info progress-steps"><b><span className="spinner small" />Claude is writing the message…</b><ul>{writing.map((m, i) => <li key={i} className="fade">{m}</li>)}</ul></div>}
+      {aiError && <div className="note bad">{aiError}</div>}
       {langs.length > 1 && <div className="seg">{langs.map(l => <button key={l} className={l === lang ? 'on' : ''} onClick={() => setLang(l)}>{l}</button>)}</div>}
       <textarea className="msg-edit" value={text} onChange={e => { setTexts(t => ({ ...t, [lang]: e.target.value })); setBlocked(null) }} rows={12} aria-label="Message" />
       {checks.length > 0 && <Collapse title={<>{ai.draft?.passed ? <span className="ok">✓ Passed all {checks.length} safety checks</span> : <span className="bad">✗ {checks.length - passed} of {checks.length} safety checks failed</span>}{edited ? <span className="muted"> · your edits are checked when you approve</span> : null}</>}>
@@ -417,12 +439,27 @@ function Trend({ r }: { r: Row }) {
   )
 }
 
-function Ask({ ai, isPack, aiOn }: { ai: AI; isPack: boolean; aiOn: boolean }) {
+function Ask({ ai, isPack, aiOn, live, r, playbookName }: { ai: AI; isPack: boolean; aiOn: boolean; live: boolean; r: Row; playbookName: string }) {
   const [q, setQ] = useState<string | null>(null)
-  const ans = q ? ai.qa?.[PRESETS.find(p => p[0] === q)![1]] : null
+  const [free, setFree] = useState('')
+  const [liveAns, setLiveAns] = useState<Record<string, { text: string; ok: boolean } | 'loading' | { error: string }>>({})
+  const ask = async (label: string, question: string) => {
+    setQ(label)
+    if (ai.qa?.[question] || liveAns[label] || !live) return
+    setLiveAns(a => ({ ...a, [label]: 'loading' }))
+    try { const res = await answerQuestion(r, question, playbookName); setLiveAns(a => ({ ...a, [label]: res })) }
+    catch (e: any) { setLiveAns(a => ({ ...a, [label]: { error: e.message ?? 'The AI request failed.' } })) }
+  }
+  const saved = q ? ai.qa?.[PRESETS.find(p => p[0] === q)?.[1] ?? ''] : null
+  const la = q ? liveAns[q] : undefined
+  const body = saved ?? (la === 'loading' ? null : la && 'error' in la ? la.error : la && !la.ok ? "This answer was hidden because it quoted a number that is not in the merchant's data. Try asking another way."
+    : la ? la.text : !aiOn ? 'AI is off. Turn it on in the header to see answers written by Claude.' : isPack ? 'No saved answer for this question.' : 'Ask Claude a question once AI is live on the server.')
   return <>
-    <div className="asks">{PRESETS.map(([l]) => <button key={l} className={`chip ${q === l ? 'on' : ''}`} onClick={() => setQ(l)}>{l}</button>)}</div>
-    {q && <div className="answer fade"><b>{q}</b><p>{ans ?? (!aiOn ? 'AI is off. Turn it on in the header to see answers written by Claude.' : isPack ? 'No saved answer for this question.' : 'Saved AI answers are available for the data pack. For other files, use the Why tab.')}</p></div>}
+    <div className="asks">{PRESETS.map(([l, qq]) => <button key={l} className={`chip ${q === l ? 'on' : ''}`} onClick={() => ask(l, qq)}>{l}</button>)}</div>
+    {live && <form className="ask-free" onSubmit={e => { e.preventDefault(); if (free.trim()) ask(free.trim(), free.trim()) }}>
+      <input value={free} onChange={e => setFree(e.target.value)} placeholder="Or ask your own question, e.g. Is this a seasonal dip?" maxLength={300} />
+      <button className="btn" type="submit">Ask</button></form>}
+    {q && <div className="answer fade"><b>{q}</b>{la === 'loading' ? <p className="muted"><span className="spinner small" />Asking Claude…</p> : <p>{body}</p>}</div>}
   </>
 }
 

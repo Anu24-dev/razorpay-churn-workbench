@@ -10,3 +10,4 @@ data/live_calls.json
 data/audit_log.csv
 web/node_modules/
 web/dist/
+web/*.tsbuildinfo

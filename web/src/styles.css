@@ -257,3 +257,8 @@ select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px r
 .ai-switch .knob::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .25s var(--ease); }
 .ai-switch.on .knob { background: var(--blue); } .ai-switch.on .knob::after { transform: translateX(14px); }
 @media (max-width: 640px) { .ai-switch span:last-child { display: none; } }
+
+.progress-steps ul { margin: 8px 0 0; padding-left: 20px; } .progress-steps li { color: var(--muted); }
+.ask-free { display: flex; gap: 8px; margin-top: 12px; }
+.ask-free input { flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; background: #fff; }
+.ask-free input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px rgba(51, 149, 255, .15); }

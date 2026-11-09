@@ -52,7 +52,8 @@ def check_draft(english: str, facts: list, unclear_cause: bool, business_name: s
         texts['regional draft (translated back)'] = back_translation
     topics = {f['topic'] for f in facts}
     for label, t in texts.items():
-        out.append((f'No numbers ({label})', not has_digits(re.sub(r'\[option [12]\]', '', t)), ''))
+        name_free = t.replace(business_name, '') if business_name else t      # a merchant's own name may contain digits
+        out.append((f'No numbers ({label})', not has_digits(re.sub(r'\[option [12]\]', '', name_free)), ''))
         hits = _find(PROMISES, t); out.append((f'No promises of refunds, waivers, discounts or price changes ({label})', not hits, ', '.join(hits)))
         hits = _find(TIMELINES, t); out.append((f'No timelines or deadlines ({label})', not hits, ', '.join(hits)))
         hits = _find(INTERNAL, t); out.append((f'No internal information: volume, leaving, risk, scores, notes, competitors ({label})', not hits, ', '.join(hits)))
