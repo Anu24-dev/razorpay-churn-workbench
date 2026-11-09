@@ -262,3 +262,15 @@ select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px r
 .ask-free { display: flex; gap: 8px; margin-top: 12px; }
 .ask-free input { flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; background: #fff; }
 .ask-free input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px rgba(51, 149, 255, .15); }
+
+.confirm { display: flex; flex-direction: column; }
+.confirm .pills { margin-bottom: 4px; }
+.mini-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0; }
+.mini-stats > div { background: var(--bg); border-radius: 10px; padding: 10px 12px; }
+.mini-stats .label { display: block; margin-bottom: 2px; }
+.mini-stats b { font-size: 1.1rem; }
+.mini-stats .hot b { color: var(--amber); }
+.am-note { margin: 0 0 14px; padding: 10px 12px; min-height: 96px; border-left: 3px solid var(--line); background: #FBFCFE; border-radius: 0 10px 10px 0; font-style: italic; }
+.am-note .label { display: block; font-style: normal; }
+.am-note.hot { border-left-color: #F59E0B; background: var(--amber-soft); }
+.confirm .select-wrap { margin-top: auto; padding-top: 6px; }

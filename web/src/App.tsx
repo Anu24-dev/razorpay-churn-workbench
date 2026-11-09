@@ -474,10 +474,12 @@ function ConfirmSection({ review, ai, PB, confirms, onConfirm }: { review: Row[]
       <div className="confirm-grid">{review.map((r, i) => { const pricingNote = ai(r.merchant_id).note_category === 'pricing'; const c = confirms[r.merchant_id]; return (
         <div key={r.merchant_id} className={`card confirm rise ${c ? 'confirmed' : ''}`} style={{ animationDelay: `${i * 50}ms` }}>
           <div className="confirm-top"><b>{nameOf(r)}</b><span className="muted">{r.csm_call_list ? "On this month's calls" : r.am_alert ? 'Passed to their account manager' : 'Automated message'}</span></div>
-          <div className="pills"><Pill tone="blue">{ncShort(r)}</Pill><Pill>Playbook: {r.playbook_id} · {PB[r.playbook_id].name}</Pill></div>
-          <dl className="facts"><dt>Renews in</dt><dd className={r.days_to_contract_renewal <= PB3_RENEWAL_DAYS ? 'hot' : ''}>{r.days_to_contract_renewal} days</dd>
-            <dt>Account manager note</dt><dd className={pricingNote ? 'hot' : ''}>{r.account_manager_note ? `“${r.account_manager_note}”` : 'None'}</dd>
-            <dt>Annual revenue</dt><dd>{rs(r.yearly_value_rs)}</dd></dl>
+          <div className="pills"><Pill tone="blue">{ncShort(r)}</Pill><Pill>{r.playbook_id} · {PB[r.playbook_id].name}</Pill></div>
+          <div className="mini-stats">
+            <div className={r.days_to_contract_renewal <= PB3_RENEWAL_DAYS ? 'hot' : ''}><span className="label">Renews in</span><b>{r.days_to_contract_renewal} days</b></div>
+            <div><span className="label">Annual revenue</span><b>{rs(r.yearly_value_rs)}</b></div>
+          </div>
+          <blockquote className={`am-note ${pricingNote ? 'hot' : ''}`}><span className="label">Account manager note</span>{r.account_manager_note ? r.account_manager_note : 'No note'}</blockquote>
           <div className="label">Ask on the call</div>
           <ul className="asklist">{callQuestions(r, pricingNote).map(a => <li key={a}>{a}</li>)}</ul>
           <label className="select-wrap"><span className="label">Cause confirmed on the call</span>
