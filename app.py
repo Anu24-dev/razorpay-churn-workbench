@@ -98,6 +98,20 @@ div[data-testid="stTabs"] button[aria-selected="true"] p {color: #0B5ED7; font-w
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+.why-list {list-style: none; padding: 0; margin: 4px 0 10px 0;}
+.why-list li {padding: 7px 0 7px 26px; position: relative; font-size: .97rem; border-bottom: 1px solid rgba(128,128,128,.14);}
+.why-list li:last-child {border-bottom: none;}
+.why-list li::before {content: '•'; position: absolute; left: 8px; color: #3395FF; font-weight: 900;}
+.why-list li.hot::before {color: #E5484D;}
+.plan {border-left: 4px solid #3395FF;}
+.plan .what {font-size: .9rem; opacity: .85; margin: 3px 0 6px 0;}
+.lead {font-size: 1.02rem; margin: -4px 0 10px 0; opacity: .8;}
+.hero .title {font-size: 1.7rem;}
+</style>
+""", unsafe_allow_html=True)
+
 
 def rs(x):
     if x is None or (isinstance(x, float) and np.isnan(x)):
@@ -109,53 +123,115 @@ def pill(text, kind='grey'):
     return f'<span class="pill p-{kind}">{text}</span>'
 
 
-TIER_SHORT = {'1': 'Imminent fade', '2': 'Declining · renews soon', '3': 'Declining', '3P': 'Possible decline', '4': 'Bounced back', '5': 'Watch', '6': 'Stable / growing'}
-TIER_PILL = {'1': ('Imminent fade', 'red'), '2': ('Declining, renews within 90 days', 'amber'), '3': ('Declining', 'amber'),
-             '3P': ('Possible decline', 'blue'), '4': ('Bounced back', 'grey'), '5': ('Watch (experimental)', 'purple'), '6': ('Stable / growing', 'green')}
-DRIVER_NAME = {'performance': 'Performance', 'service': 'Service', 'engagement': 'Engagement', core.NC: 'No clear cause in the numbers'}
+def plural(n, word, many=None):
+    return f"{n} {word if n == 1 else (many or word + 's')}"
 
 
-# Merchants with no operational problem in the numbers. They are picked and ranked like everyone else (falling volume x value);
-# the playbook follows the engine's likely bucket. The account-manager note is shown as supporting evidence only.
-def nc_short(r):
-    b = str(r.review_likely_bucket)
-    if b.startswith('Likely commercial (renews'): return 'Likely pricing · confirm'
-    if 'commercial or external' in b: return 'Pricing or external · confirm'
-    m = re.match(r'Likely (\w+) \(weak', b)
-    return f'Likely {m.group(1)} (weak) · confirm' if m else 'No clear cause · confirm'
-
-
-def note_says_pricing(r):
-    n = r.get('account_manager_note')
-    nr = stored(P.read_note, n) if isinstance(n, str) else None
-    return bool(nr and nr.get('category') == 'pricing')
-
-
-def nc_basis(r):
-    b = str(r.review_likely_bucket); d = int(r.days_to_contract_renewal); n = r.get('account_manager_note')
-    out = ('Picked because its volume is falling and not recovering, and ranked by value, like every merchant on the list. '
-           'The numbers show no performance, service or engagement problem. ')
-    if b.startswith('Likely commercial (renews'):
-        out += f"The playbook is PB-3 because the contract renews in {d} days, which is PB-3's own trigger in the data pack (renewal within about 60 days). "
-    elif 'commercial or external' in b:
-        out += 'There is no operational signal and renewal is more than 60 days away, so PB-3 is the default: pricing is the most common cause the numbers cannot show. '
-    else:
-        out += f"The playbook follows the strongest weak signal ({b.split('(')[0].replace('Likely', '').strip()}), which is below the line for naming a driver. "
-    if isinstance(n, str):
-        out += (f'The account manager note points the same way: “{n}”. ' if note_says_pricing(r) else f'The account manager note does not mention pricing: “{n}”. ')
-    else:
-        out += 'There is no account manager note. '
-    return out + 'The note is supporting evidence only: it is not used to pick or rank the merchant. A person confirms the cause on the call.'
+# One set of words, used everywhere on the page. The engine's own labels stay as they are (they are tested against the notebook).
+URGENCY = {'1': ('Leaving fast', 'red'), '2': ('Slipping, renews soon', 'amber'), '3': ('Slipping', 'amber'), '3P': ('Small dip', 'blue'),
+           '4': ('Dipped, recovered', 'grey'), '5': ('Keep an eye on', 'purple'), '6': ('Healthy', 'green')}
+DRIVER_NAME = {'performance': 'Payments failing', 'service': 'Support issues', 'engagement': 'Using us less', core.NC: 'Likely pricing'}
+SHORT2 = {'performance': 'payments', 'service': 'support', 'engagement': 'usage'}
+PICK = {'Firm': 'Solid', 'Borderline': 'Close call', 'Next in line': 'Next up'}
+FIX = {'performance': 'Alert the merchant and their CSM as soon as payments start failing more than usual, before the merchant notices.',
+       'service': 'Give every open ticket an owner and a closing date, and follow up on low ratings the same week.',
+       'engagement': 'Re-confirm the main contact when ownership changes, and nudge merchants toward features they are not using.',
+       core.NC: 'Start a pricing review 60 days before every renewal, before merchants shop around.'}
+CHECK_WORDS = {'promise': 'a promise (refund, waiver, discount or price change)', 'timeline': 'a promised deadline',
+               'internal': 'internal information (volume, leaving, risk, notes or competitors)'}
 
 
 def tier_key(t):
     return '3P' if str(t).startswith('3P') else str(t)[0]
 
 
+def urgency(r):
+    return URGENCY[tier_key(r.tier)][0]
+
+
+def nc_short(r):
+    """Merchants whose numbers show no payment, support or usage problem. Picked and ranked like everyone else."""
+    b = str(r.review_likely_bucket)
+    if b.startswith('Likely commercial (renews'): return 'Likely pricing'
+    if 'commercial or external' in b: return 'Pricing or outside factor'
+    m = re.match(r'Likely (\w+) \(weak', b)
+    return f"Possibly {DRIVER_NAME.get(m.group(1), m.group(1)).lower()}" if m else 'Cause unclear'
+
+
+def why_short(r):
+    if r.driver_main == core.NC:
+        return nc_short(r) + '?'
+    if not isinstance(r.driver_main, str):
+        return ''
+    two = isinstance(r.driver_second, str) and r.driver_second
+    return DRIVER_NAME[r.driver_main] + (f" + {SHORT2.get(r.driver_second, r.driver_second)}" if two else '')
+
+
+def stored(fn, *a):
+    """Drawing the page never waits on Claude: it reads saved results. New AI work only happens on a click."""
+    with llm.stored_only():
+        return fn(*a)
+
+
+def note_category(r):
+    n = r.get('account_manager_note')
+    nr = stored(P.read_note, n) if isinstance(n, str) else None
+    return nr.get('category') if nr else None
+
+
+def driver_line(r, d):
+    """One plain sentence for a driver, from the merchant's own numbers."""
+    if d == 'performance':
+        return f'More payments are failing: the success rate fell from {r.success_rate_m1_m3_pct:.1f}% to {r.success_rate_m4_m6_pct:.1f}%'
+    if d == 'service':
+        rating = '' if pd.isna(r.last_csat_1_to_5) else f', and their last support rating was {r.last_csat_1_to_5:.0f} out of 5'
+        return f"{plural(int(r.unresolved_tickets), 'support ticket')} still open{rating}"
+    if d == 'engagement':
+        return f"They have logged in {plural(int(r.logins_last_30d), 'time')} this month and use {plural(int(r.products_used), 'product')}"
+    return 'No payment, support or usage problem shows up in their numbers'
+
+
+def why_points(r):
+    """The 'why' for one merchant as three to five short lines. The first line is the drop, the last is the renewal."""
+    pts = [(f'Their payment volume is down {abs(r.tpv_change):.0%} over the last three months', True)]
+    pts.append((('If nothing changes, they lose more than half their volume by month 9', True) if r.imminent else
+                (f'If nothing changes, they will be about {r.projected_loss_m9:.0%} down by month 9', False)))
+    pts.append((driver_line(r, r.driver_main), r.driver_main != core.NC))
+    if isinstance(r.driver_second, str) and r.driver_second:
+        pts.append((driver_line(r, r.driver_second), True))
+    d = int(r.days_to_contract_renewal)
+    pts.append((f'Their contract renews in {d} days', d <= core.PB3_RENEWAL_DAYS))
+    return pts
+
+
+def why_left(r):
+    """Why a merchant is not on the list, in plain words."""
+    g = r.why_group
+    if g == 'Seasonal dip': t = 'A seasonal dip. It picked up again in month 6.'
+    elif g == 'Bounced-back dip': t = 'Dipped, then picked up again in month 6.'
+    elif g == 'Small and steady': t = 'A small business. Low volume is normal for them, and it is not falling.'
+    elif g == 'Busy and growing': t = f'Up {r.tpv_change:.0%} and raising a lot of tickets. That is a busy business, not one that is leaving.'
+    elif g == 'Growing': t = f'Up {r.tpv_change:.0%}.'
+    elif g == 'Steady': t = 'Normal month-to-month movement.'
+    elif g == 'Possible decline': t = 'A small drop that has not bounced back yet. They get an automated check-in, not a call.'
+    elif g == 'Watch list': t = 'Steady for now, but behaving like merchants who later slipped. Worth a look next month.'
+    else: t = str(r.why_not_flagged or '')
+    sig = str(r.signal_to_watch or '')
+    return t + (f' Keep an eye on: {DRIVER_NAME.get(sig, sig).lower()}.' if sig else '')
+
+
+GROUP_NAME = {'Seasonal dip': 'Seasonal dip', 'Bounced-back dip': 'Dipped and recovered', 'Small and steady': 'Small and steady',
+              'Busy and growing': 'Busy and growing', 'Growing': 'Growing', 'Steady': 'Steady', 'Possible decline': 'Small dip', 'Watch list': 'Keep an eye on'}
+
+
+def friendly_check(name):
+    n = name.lower()
+    key = 'promise' if 'promise' in n else 'timeline' if 'timeline' in n or 'deadline' in n else 'internal' if 'internal' in n else None
+    return CHECK_WORDS.get(key, name)
+
+
 # ------------------------------------------------------------------ sidebar: file, name, AI switch
 DEFAULT_FILE = 'data/Buildathon_Student_Data_Pack.xlsx'
-
-
 PRECOMPUTED = 'data/datapack_results.pkl'   # full results for the data pack, so the page opens instantly
 
 
@@ -181,9 +257,9 @@ ss = st.session_state
 ss.setdefault('up_key', 0); ss.setdefault('watch_ready', set()); ss.setdefault('last_file', None)
 with st.sidebar:
     st.markdown("<div class='side-brand'>Merchant Retention Workbench</div>", unsafe_allow_html=True)
-    st.caption('Razorpay Campus AI Build-a-thon · Problem 2: churn early-warning and proactive outreach')
-    up = st.file_uploader('Score a different month (optional)', type=['xlsx', 'csv'], key=f"up-{ss.up_key}",
-                          help='Upload the data pack or any file with the same P2_Merchants columns. It is scored as soon as it is uploaded: no button needed.')
+    st.caption('Razorpay Campus AI Build-a-thon · Problem 2')
+    up = st.file_uploader("Try another month's file", type=['xlsx', 'csv'], key=f"up-{ss.up_key}",
+                          help='Drop in the data pack, or any file with the same columns. It is scored straight away.')
     if up is not None:
         file_bytes, file_name = up.getvalue(), up.name
     else:
@@ -191,42 +267,40 @@ with st.sidebar:
     status_box = st.empty()
     if up is not None and st.button('Back to the data pack', width='stretch'):
         ss.up_key += 1; st.rerun()
-    ss.csm = st.text_input('Your name (signs the drafts and the log)', value=ss.get('csm', 'Anoushka'), placeholder='e.g. Anoushka')
+    ss.csm = st.text_input('Your name', value=ss.get('csm', 'Anoushka'), placeholder='e.g. Anoushka',
+                           help='Your name signs the messages and the activity log.')
     st.divider()
-    ai_on = st.toggle('AI on (Claude)', value=ss.get('ai_on', llm.has_key()), disabled=not llm.has_key(), key='ai_on',
-                      help='On: you can ask Claude to write new drafts and answer new questions (only when you click). '
-                           'Off: no calls to Claude at all. Stored AI results are always shown.')
+    ai_on = st.toggle('AI drafting', value=ss.get('ai_on', llm.has_key()), disabled=not llm.has_key(), key='ai_on',
+                      help='On: Claude can write new drafts and answer new questions when you click. Off: you only see saved results.')
     llm.set_enabled(ai_on)
     if not llm.has_key():
-        st.caption('No API key on this server, so AI is off. Stored AI results for the data pack are shown.')
+        st.caption("AI is off on this server. You'll see the saved drafts.")
     elif ai_on:
-        st.caption('AI is on. Claude is only called when you click a button, and calls are capped to protect the budget.')
+        st.caption('Claude only runs when you click, and usage is capped.')
     else:
-        st.caption('AI is off: no calls to Claude. Stored results only.')
+        st.caption("You're seeing saved drafts only.")
     st.divider()
-    st.caption('Nothing is sent to merchants from this app. Approved messages are exported for the CSM to send.')
+    st.caption('Nothing is ever sent from this app. You send the approved messages yourself.')
 
 file_id = hashlib.sha1(file_bytes).hexdigest()[:10]
-t0 = dt.datetime.now()
 watch_ready = file_id in ss.watch_ready or file_name == DEFAULT_FILE.split('/')[-1] and up is None
 res = run_engine(file_bytes, file_name, watch_ready)
-secs = (dt.datetime.now() - t0).total_seconds()
 if not res['ok']:
-    status_box.error(f'Could not score {file_name}. See the reason on the right, fix the file and upload it again, or go back to the data pack.')
-    st.markdown("<div class='hero'><div class='title'>Merchant Retention Workbench</div><div class='sub'>This file could not be scored yet.</div></div>", unsafe_allow_html=True)
+    status_box.error("Couldn't use this file. The reason is on the right.")
+    st.markdown("<div class='hero'><div class='title'>Merchant Retention Workbench</div><div class='sub'>This file couldn't be scored.</div></div>", unsafe_allow_html=True)
     if 'error' in res:
-        st.error(f"**{file_name}** could not be read. {res['error']}")
+        st.error(f"We couldn't read **{file_name}**. {res['error']}")
     else:
-        st.error(f'**{file_name}** cannot be scored. The checks marked FAIL below need fixing; the rest passed.')
+        st.error(f"**{file_name}** is missing a few things. Fix the rows marked FAIL below and upload it again.")
         st.dataframe(res['checks'], hide_index=True, width='stretch')
-    st.caption('Expected: the data pack, or an .xlsx / .csv with the same columns as its P2_Merchants tab (one row per merchant, at least 30 merchants).')
+    st.caption('We need the data pack, or a file with the same columns as its P2_Merchants tab and at least 30 merchants.')
     st.stop()
 n_merch = res['summary']['merchants']
 n_c = int(res['df'].csm_call_list.sum())
-status_box.success(f"Loaded **{file_name}**: {n_merch} merchants scored, {n_c} call{'s' if n_c != 1 else ''} ready.", icon='✅')
+status_box.success(f"**Loaded.** {n_merch} merchants · {plural(n_c, 'call')}", icon='✅')
 if ss.last_file != file_id:
     if ss.last_file is not None:
-        st.toast(f'Loaded {file_name}: {n_merch} merchants scored.', icon='✅')
+        st.toast(f'Loaded {file_name}. {n_merch} merchants scored.', icon='✅')
     ss.last_file = file_id
 
 df = res['df'].copy()
@@ -243,110 +317,113 @@ def log(action, merchant_id, detail=''):
                      'merchant_id': merchant_id, 'action': action, 'detail': detail})
 
 
-# ------------------------------------------------------------------ AI results
-# Drawing the page never waits on Claude: it only reads stored results. New AI work happens only when the user clicks,
-# with a progress box saying what is happening.
-def stored(fn, *a):
-    with llm.stored_only():
-        return fn(*a)
+def name_of(m):
+    return by_id.loc[m].get('business_name', m)
 
 
-def reason_for(r):
-    if r.declining or r.possible_decline:
-        text, _ = stored(P.write_reason, r)
-        if text:
-            return text, 'AI'
-        return (f"Volume in months 4-6 is {abs(r.tpv_change):.0%} below months 1-3 and projected to be {r.projected_loss_m9:.0%} below its healthy level by month 9. "
-                f"Main driver: {DRIVER_NAME.get(r.driver_main, r.driver_main).lower()}. Renews in {int(r.days_to_contract_renewal)} days."), 'rule-based'
-    return r.why_not_flagged, 'rule-based'
+def how_we_pick():
+    st.markdown(f"""
+**1. Slipping.** Their volume dropped more than {abs(S['decline_line']):.1%} over the last three months and hasn't bounced back.
+That line is three times the normal month-to-month wobble ({S['typical_wobble']:.1%}), so ordinary ups and downs don't count.
 
+**2. How fast.** If the trend carries on, will they lose more than half their volume by month 9? Those are *leaving fast*.
 
-def pb_label(r):
-    return r.playbook_id + (f' + {r.playbook_also_id}' if r.playbook_also_id else '')
+**3. Why.** We compare each merchant's payments, support and usage with everyone else's. If nothing stands out, it's likely pricing,
+and you confirm it on the call. Account manager notes back this up but never decide anything.
+
+**4. The plan.** Always one of the six playbooks from the data pack. Merchant size decides who runs it.
+
+**5. Who gets a call.** Chance they leave × chance a call saves them × what they're worth in a year, minus Rs 1,500 for the call.
+The save chances are our best guess (60% for payments and support, 40% for pricing, 30% for usage), so we re-check the list 11 different ways.
+*Close call* means a merchant drops out in some of them.
+
+**AI's part.** Claude writes the summaries and messages and checks the translations. It never decides who is on the list. You approve every message.
+""")
 
 
 # ------------------------------------------------------------------ header
-st.markdown(f"""<div class="hero"><div class="eyebrow">Customer success · Churn early-warning</div>
-<div class="title">Merchant Retention Workbench</div>
-<div class="sub">Find merchants whose payment volume is falling and not coming back, see why, and send the right first message to the 15 that matter most.</div>
-<span class="chip">{S['merchants']} merchants · {file_name}</span><span class="chip">Month-6 snapshot</span>
-<span class="chip">Decline = drop beyond {abs(S['decline_line']):.1%} that does not bounce back</span>
-<span class="chip">AI {'on' if llm.live() else 'off'}</span></div>""", unsafe_allow_html=True)
-tab_work, tab_why = st.tabs(['Workbench', 'Why not flagged'])
+st.markdown(f"""<div class="hero"><div class="eyebrow">Razorpay · Customer success</div>
+<div class="title">Who to call this month</div>
+<div class="sub">These merchants are moving their payments away. Here's who matters most, why, and a message ready to send.</div>
+<span class="chip">{file_name}</span><span class="chip">AI {'on' if llm.live() else 'off'}</span></div>""", unsafe_allow_html=True)
+tab_work, tab_why = st.tabs(['Your calls', 'Left off, and why'])
 
-# ================================================================== WORKBENCH
+# ================================================================== YOUR CALLS
 with tab_work:
-    # ---- money panel
-    cards = [('Merchants at risk', f"{S['at_risk']}", f"{S['imminent']} imminent fades · {S['review']} need a person"),
-             ('Yearly revenue at risk', rs(V['at_risk_value']), 'net revenue at 1% of TPV'),
-             (f"Covered by the {len(calls)} call{'s' if len(calls) != 1 else ''}", rs(V['call_list_value']), f"{V['call_list_value'] / V['at_risk_value']:.0%} of revenue at risk" if V['at_risk_value'] else ''),
-             ('Expected saving', f"Rs {V['saving_10'] / 1e5:,.1f}-{V['saving_ours'] / 1e5:,.1f}L" if len(calls) else rs(0), 'a range: the save chance is an assumption'),
-             (f"Cost of the {len(calls)} call{'s' if len(calls) != 1 else ''}", rs(V['outreach_cost']), f"each call pays off above a {V['break_even_max']:.1%} save chance" if V['outreach_cost'] else '')]
-    # one CSS grid: five across on a wide screen, wrapping to more rows on a narrow one (no squeezed, broken words)
-    st.markdown('<div class="kpis">' + ''.join(f'<div class="kpi{" accent" if i in (0, 3) else ""}"><div class="label">{lab}</div><div class="value">{val}</div>'
+    cover = V['call_list_value'] / V['at_risk_value'] if V['at_risk_value'] else 0
+    cards = [('Slipping away', plural(S['at_risk'], 'merchant'), f"{S['imminent']} leaving fast"),
+             ('Revenue at stake', rs(V['at_risk_value']), 'a year'),
+             (f"Your {plural(len(calls), 'call')} cover", f'{cover:.0%}' if len(calls) else '–', f"{rs(V['call_list_value'])} of it" if len(calls) else 'nobody to call')]
+    st.markdown('<div class="kpis">' + ''.join(f'<div class="kpi{" accent" if i == 0 else ""}"><div class="label">{lab}</div><div class="value">{val}</div>'
                                                f'<div class="sub">{sub}</div></div>' for i, (lab, val, sub) in enumerate(cards)) + '</div>', unsafe_allow_html=True)
+    if len(calls):
+        with st.popover('Is it worth the calls?'):
+            st.markdown(f"The {plural(len(calls), 'call')} take {rs(V['outreach_cost'])} of CSM time. "
+                        f"Each one pays for itself if even {V['break_even_max']:.1%} of calls keep the merchant.\n\n"
+                        f"If 1 in 10 calls works, that's **{rs(V['saving_10'])}** kept a year. If 1 in 3 works, **{rs(V['saving_30'])}**. "
+                        f"With our own guesses by cause, **{rs(V['saving_ours'])}**.")
 
-    # ---- driver mix and the fix
+    # ---- why they're slipping, and the biggest fix
     mix = res['driver_mix']
     if len(mix):
         c1, c2 = st.columns([3, 2])
         with c1:
-            nc_all = df[df.declining & df.needs_person]
-            nc_name = ('Likely pricing (renewal soon)' if len(nc_all) and nc_all.review_likely_bucket.str.startswith('Likely commercial (renews').all()
-                       else 'No clear cause in the numbers')
-            names = [(nc_name if d == core.NC else DRIVER_NAME.get(d, d)) for d in mix.driver]
+            names = [DRIVER_NAME.get(d, d) for d in mix.driver]
             fig = go.Figure(go.Bar(x=mix.merchants, y=names, orientation='h', marker_color=[BLUE if d != core.NC else GREY for d in mix.driver],
-                                   text=[f"{m} merchant{'s' if m != 1 else ''} · {rs(v)}/yr" for m, v in zip(mix.merchants, mix.yearly_value_rs)],
+                                   text=[plural(int(m), 'merchant') for m in mix.merchants],
                                    textposition='outside', cliponaxis=False, textfont=dict(color=NAVY, size=12),
-                                   hovertemplate='%{y}: %{x} merchants<extra></extra>'))
-            fig.update_layout(height=190, margin=dict(l=0, r=0, t=28, b=0), title=dict(text='Why merchants are at risk', font=dict(size=14)),
-                              xaxis=dict(visible=False, range=[0, float(mix.merchants.max()) * 1.75]), yaxis=dict(autorange='reversed'), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+                                   customdata=[rs(v) for v in mix.yearly_value_rs],
+                                   hovertemplate='%{y}: %{x} merchants, %{customdata} a year<extra></extra>'))
+            fig.update_layout(height=180, margin=dict(l=0, r=0, t=28, b=0), title=dict(text="Why they're slipping", font=dict(size=14)),
+                              xaxis=dict(visible=False, range=[0, float(mix.merchants.max()) * 1.45]), yaxis=dict(autorange='reversed'),
+                              plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, width='stretch', config={'displayModeBar': False})
         with c2:
             top = mix[mix.driver != core.NC].iloc[0] if (mix.driver != core.NC).any() else mix.iloc[0]
-            st.markdown(f"""<div class="card fix"><div class="label muted">BIGGEST FIXABLE DRIVER · SUGGESTED PROCESS FIX</div>
-            <div style="font-weight:650;margin:4px 0">{DRIVER_NAME.get(top.driver, top.driver)}: {top.merchants} merchant{'s' if top.merchants != 1 else ''}, {rs(top.yearly_value_rs)}/yr</div>
-            <div style="font-size:.9rem">{res['fix_ideas'][top.driver]}</div></div>""", unsafe_allow_html=True)
-            if (mix.driver == core.NC).any():
-                nc_df = df[df.declining & df.needs_person]
+            st.markdown(f"""<div class="card fix"><div class="label muted">BIGGEST THING TO FIX</div>
+            <div style="font-weight:650;margin:4px 0">{DRIVER_NAME.get(top.driver, top.driver)} · {plural(int(top.merchants), 'merchant')}</div>
+            <div style="font-size:.92rem">{FIX[top.driver]}</div></div>""", unsafe_allow_html=True)
+            nc_df = df[df.declining & df.needs_person]
+            if len(nc_df):
                 soon = int((nc_df.days_to_contract_renewal <= core.PB3_RENEWAL_DAYS).sum())
-                n_note = sum(note_says_pricing(x) for _, x in nc_df.iterrows())
-                st.markdown(f"""<div class="card" style="font-size:.88rem">{len(nc_df)} merchant{'s' if len(nc_df) != 1 else ''} at risk show{'' if len(nc_df) != 1 else 's'} no operational problem in the numbers.
-                {soon} renew{'s' if soon == 1 else ''} within 60 days (PB-3's trigger), and {n_note} {'have' if n_note != 1 else 'has'} an account manager note about pricing or competitors.
-                Suggested fix: {res['fix_ideas'][core.NC]}</div>""", unsafe_allow_html=True)
+                heard = sum(note_category(x) == 'pricing' for _, x in nc_df.iterrows())
+                st.markdown(f"""<div class="card" style="font-size:.92rem"><b>{plural(len(nc_df), 'more merchant')} look{'s' if len(nc_df) == 1 else ''} like pricing.</b>
+                {'All' if soon == len(nc_df) else soon} renew within 60 days{f', and their account managers have heard about quotes or competitors' if heard else ''}.
+                <br><span class="muted">Idea: {FIX[core.NC]}</span></div>""", unsafe_allow_html=True)
 
-    # ---- the 15 calls (list) + merchant panel
+    # ---- the calls (list) + merchant panel
     if len(calls) == 0:
-        st.markdown("### This month's calls")
-        st.info('No merchant is declining in this file, so there is nobody to call this month. The **Why not flagged** tab shows how every merchant was read.')
+        st.markdown('### Your calls')
+        st.info("No merchant is slipping in this file, so there's nobody to call this month. **Left off, and why** shows how each merchant was read.")
     else:
-        st.markdown(f"### This month's {len(calls)} call{'s' if len(calls) != 1 else ''}")
-        st.caption(('Ranked by chance of leaving x chance of saving x yearly value. Borderline = drops out of the 15 under some reasonable assumptions, '
-                    'so the CSM lead decides those slots. ' if len(calls) == core.CAPACITY else
-                    f'Only {len(calls)} merchant{"s are" if len(calls) != 1 else " is"} declining, so the team has spare capacity this month. ')
-                   + 'Click a row to open the merchant.')
+        h1, h2 = st.columns([5, 1.4], vertical_alignment='bottom')
+        h1.markdown(f"### Your {plural(len(calls), 'call')}")
+        with h2.popover('How we pick these'):
+            how_we_pick()
+        st.markdown(("<div class='lead'>Pick a merchant to see why they're here and the message ready for them.</div>" if len(calls) == core.CAPACITY else
+                     f"<div class='lead'>Only {plural(len(calls), 'merchant is', 'merchants are')} slipping this month, so you have room to spare. "
+                     "Pick one to see why they're here.</div>"), unsafe_allow_html=True)
 
-    STATUS_LABEL = {'Approved': '✓ Approved', 'Not this month': '✗ Not this month', 'Writing it myself': '✎ Rewriting'}
+    STATUS_LABEL = {'Approved': '✓ Approved', 'Not this month': '– Skipped', 'Writing it myself': '✎ Rewriting'}
 
     def status_of(mid):
         d = ss.decisions.get((file_id, mid))
         return STATUS_LABEL.get(d['status'], d['status']) if d else 'To review'
     n_ok = sum(1 for m in calls.merchant_id if (ss.decisions.get((file_id, m)) or {}).get('status') == 'Approved')
     n_skip = sum(1 for m in calls.merchant_id if (ss.decisions.get((file_id, m)) or {}).get('status') == 'Not this month')
-    st.progress((n_ok + n_skip) / max(len(calls), 1),
-                text=f"**{n_ok} approved** and in the outbox · {n_skip} not contacted this month · {len(calls) - n_ok - n_skip} still to review")
+    if len(calls):
+        st.progress((n_ok + n_skip) / max(len(calls), 1),
+                    text=f"**{n_ok + n_skip} of {len(calls)} done**" + (f" · {n_ok} approved" if n_ok else '') + (f" · {n_skip} skipped" if n_skip else ''))
     tbl = pd.DataFrame({
         '#': calls.revenue_rank.astype(int).values,
         'Merchant': calls.get('business_name', calls.merchant_id).values,
         'ID': calls.merchant_id.values,
-        'Size': calls.segment.values,
-        'Risk': [TIER_SHORT[tier_key(t)] for t in calls.tier],
-        'Why': [(nc_short(r) if r.driver_main == core.NC else DRIVER_NAME[r.driver_main] + (f' + {DRIVER_NAME[r.driver_second].lower()}' if isinstance(r.driver_second, str) and r.driver_second else ''))
-                for _, r in calls.iterrows()],
-        'Playbook': [pb_label(r) for r in calls.itertuples()],
-        'Renews in': [f"{int(x)} d" for x in calls.days_to_contract_renewal],
-        'Slot': calls.call_list_status.values,
-        'Draft': [status_of(m) for m in calls.merchant_id]})
+        'Urgency': [urgency(r) for _, r in calls.iterrows()],
+        'Why': [why_short(r) for _, r in calls.iterrows()],
+        'Plan': [r.playbook_id + (f' + {r.playbook_also_id}' if r.playbook_also_id else '') for r in calls.itertuples()],
+        'Renews in': [f"{int(x)} days" for x in calls.days_to_contract_renewal],
+        'Pick': [PICK.get(x, x) for x in calls.call_list_status],
+        'Status': [status_of(m) for m in calls.merchant_id]})
     prev = ss.get(f'calls-{file_id}')
     has_sel = bool(prev and getattr(prev, 'selection', None) and prev.selection.rows)
     if has_sel:
@@ -354,80 +431,78 @@ with tab_work:
     else:
         left, right = st.container(), st.container()
     with left:
-        sel = None if len(tbl) == 0 else st.dataframe(tbl, hide_index=True, width='stretch', on_select='rerun', selection_mode='single-row', key=f'calls-{file_id}',
-                           height=36 * (len(tbl) + 1) + 4,
-                           column_order=(['#', 'Merchant', 'Why', 'Playbook', 'Draft'] if has_sel else list(tbl.columns)),
-                           column_config={'#': st.column_config.NumberColumn(width=36), 'Merchant': st.column_config.TextColumn(width=135),
-                                          'Why': st.column_config.TextColumn(width=142), 'Playbook': st.column_config.TextColumn(width=84),
-                                          'Draft': st.column_config.TextColumn(width=96)})
+        sel = None if len(tbl) == 0 else st.dataframe(
+            tbl, hide_index=True, width='stretch', on_select='rerun', selection_mode='single-row', key=f'calls-{file_id}',
+            height=36 * (len(tbl) + 1) + 4,
+            column_order=(['#', 'Merchant', 'Why', 'Status'] if has_sel else ['#', 'Merchant', 'Urgency', 'Why', 'Plan', 'Renews in', 'Pick', 'Status']),
+            column_config={'#': st.column_config.NumberColumn(width=36), 'Merchant': st.column_config.TextColumn(width=150),
+                           'Why': st.column_config.TextColumn(width=200 if has_sel else 230),
+                           'Plan': st.column_config.TextColumn(help='The playbook from the data pack. Open a merchant to read what it involves.'),
+                           'Pick': st.column_config.TextColumn(help='Solid: in the top 15 however we weigh the guesses. Close call: drops out in some versions, so the CSM lead decides.'),
+                           'Status': st.column_config.TextColumn(width=100)})
         if sel and sel.selection.rows:
             ss.selected = tbl.iloc[sel.selection.rows[0]]['ID']
-        if not has_sel and len(tbl):
-            st.caption('Tip: the playbook codes are the six in the data pack. Open a merchant to read what each one involves.')
 
     with right:
         mid = ss.selected if (has_sel or (sel and sel.selection.rows)) and ss.selected in set(calls.merchant_id) else None
         if mid is not None:
             r = by_id.loc[mid]
-            tl, tc = TIER_PILL[tier_key(r.tier)]
+            tl, tc = URGENCY[tier_key(r.tier)]
             with st.container(height=36 * (len(tbl) + 1) + 4, border=True):
-                pills = pill(tl, tc) + pill(r.segment, 'grey') + pill(r.call_list_status, 'amber' if r.call_list_status == 'Borderline' else 'green')
+                pills = pill(tl, tc)
                 if r.call_this_week: pills += pill('Call this week', 'red')
-                if r.needs_person: pills += pill(nc_short(r).replace(' · confirm', ': confirm on the call'), 'amber')
+                if r.call_list_status == 'Borderline': pills += pill('Close call', 'amber')
+                if r.needs_person: pills += pill(nc_short(r) + '? Check on the call', 'amber')
                 st.markdown(f"<div style='font-size:1.15rem;font-weight:650'>{r.get('business_name', mid)}</div>"
-                            f"<div class='muted'>{mid} · {r.get('city', '')} · {r.industry} · renews in {int(r.days_to_contract_renewal)} days · "
-                            f"with Razorpay {int(r.tenure_months)} months</div>{pills}", unsafe_allow_html=True)
-                t_over, t_msg, t_trend, t_ask = st.tabs(['Overview', 'Message', 'Trends', 'Ask'])
+                            f"<div class='muted'>{r.get('city', '')} · {r.industry} · {r.segment} · with us {int(r.tenure_months)} months</div>{pills}",
+                            unsafe_allow_html=True)
+                t_over, t_msg, t_trend, t_ask = st.tabs(['Why', 'Message', 'Trend', 'Ask'])
 
                 with t_over:
-                    reason, src = reason_for(r)
-                    st.markdown(f"<div class='card'><div class='label muted'>WHY THIS MERCHANT ({src})</div>{reason}</div>", unsafe_allow_html=True)
-                    if src == 'rule-based' and (r.declining or r.possible_decline) and llm.live():
-                        if st.button('Explain it in plain words with AI (a few seconds)', key=f'why-{file_id}-{mid}'):
-                            with st.spinner('Asking Claude to explain this merchant...'):
-                                P.write_reason(r)
-                            st.rerun()
-                    drv = {r.driver_main, r.driver_second}
-                    sr_drop = r.success_rate_m1_m3_pct - r.success_rate_m4_m6_pct
-                    csat = '–' if pd.isna(r.last_csat_1_to_5) else f'{r.last_csat_1_to_5:.0f}/5'
-                    tiles = [('Volume, months 4-6 vs 1-3', f'{r.tpv_change:+.0%}', 'flag'),
-                             ('Projected by month 9', f'-{r.projected_loss_m9:.0%}', 'flag' if r.imminent else 'warn'),
-                             ('Success rate', f'{r.success_rate_m1_m3_pct:.1f}% → {r.success_rate_m4_m6_pct:.1f}%', 'flag' if 'performance' in drv else ''),
-                             ('Unresolved tickets', f'{int(r.unresolved_tickets)} of {int(r.support_tickets_last_90d)}', 'flag' if 'service' in drv else ''),
-                             ('Last CSAT', csat, 'flag' if ('service' in drv and csat != '–') else ''),
-                             ('Logins, last 30 days', f'{int(r.logins_last_30d)}', 'flag' if 'engagement' in drv else ''),
-                             ('Products used', f'{int(r.products_used)}', 'flag' if 'engagement' in drv else ''),
-                             ('Renews in', f'{int(r.days_to_contract_renewal)} days', 'warn' if r.days_to_contract_renewal <= 60 else '')]
-                    st.markdown('<div class="tiles">' + ''.join(f'<div class="tile {c}"><div class="label">{l}</div><div class="value">{v}</div></div>' for l, v, c in tiles)
-                                + '</div>', unsafe_allow_html=True)
-                    if r.needs_person:
-                        st.markdown(f"<div class='banner'><b>{nc_short(r).replace(' · confirm', '')}.</b> {nc_basis(r)}</div>", unsafe_allow_html=True)
-                    pb_html = (f"<div class='pb-id'>{r.playbook_id} {PB[r.playbook_id]['name']}</div><div class='pb-text'>{PB[r.playbook_id]['what_happens']}</div>")
-                    if r.playbook_also_id:
-                        pb_html += (f"<div class='pb-id'>+ {r.playbook_also_id} {PB[r.playbook_also_id]['name']}</div>"
-                                    f"<div class='pb-text'>{PB[r.playbook_also_id]['what_happens']}</div>")
-                    st.markdown(f"<div class='card'><div class='label muted'>PLAYBOOK (FROM THE DATA PACK)</div>{pb_html}"
-                                f"<div class='muted'>Who runs it ({r.segment} merchant): {r.delivery}</div></div>", unsafe_allow_html=True)
+                    st.markdown('<ul class="why-list">' + ''.join(f"<li class='{'hot' if hot else ''}'>{t}</li>" for t, hot in why_points(r)) + '</ul>',
+                                unsafe_allow_html=True)
                     note = r.get('account_manager_note')
-                    if isinstance(note, str):
-                        nr = stored(P.read_note, note)
-                        tag = f" · AI reads it as <b>{nr['category']}</b>" if nr and nr.get('category') else ''
-                        st.markdown(f"<div class='muted'>Account manager note: “{note}”{tag}</div>", unsafe_allow_html=True)
+                    if r.needs_person:
+                        heard = f' Their account manager heard: “{note}”.' if isinstance(note, str) else ''
+                        st.markdown(f"<div class='banner'><b>Why {nc_short(r).lower()}?</b> Nothing in their numbers explains the drop, "
+                                    f"and the contract renews in {int(r.days_to_contract_renewal)} days.{heard} Confirm it on the call before acting.</div>",
+                                    unsafe_allow_html=True)
+                        st.caption("The note backs this up, but it doesn't decide anything. Volume and value put them on the list.")
+                    elif isinstance(note, str):
+                        st.markdown(f"<div class='muted'>Their account manager says: “{note}”</div>", unsafe_allow_html=True)
+                    plan = f"<div class='pb-id'>{r.playbook_id} · {PB[r.playbook_id]['name']}</div><div class='what'>{PB[r.playbook_id]['what_happens']}</div>"
+                    if r.playbook_also_id:
+                        plan += (f"<div class='pb-id'>+ {r.playbook_also_id} · {PB[r.playbook_also_id]['name']}</div>"
+                                 f"<div class='what'>{PB[r.playbook_also_id]['what_happens']}</div>")
+                    st.markdown(f"<div class='card plan'><div class='label muted'>THE PLAN</div>{plan}<div class='muted'>Who: {r.delivery}</div></div>",
+                                unsafe_allow_html=True)
+                    ai_text, _ = stored(P.write_reason, r) if (r.declining or r.possible_decline) else (None, None)
+                    if ai_text:
+                        with st.expander("Claude's summary"):
+                            st.write(ai_text)
+                    with st.expander('All their numbers'):
+                        csat = '–' if pd.isna(r.last_csat_1_to_5) else f'{r.last_csat_1_to_5:.0f} out of 5'
+                        tiles = [('Volume, last 3 months', f'{r.tpv_change:+.0%}'), ('By month 9, if nothing changes', f'-{r.projected_loss_m9:.0%}'),
+                                 ('Payment success', f'{r.success_rate_m1_m3_pct:.1f}% → {r.success_rate_m4_m6_pct:.1f}%'),
+                                 ('Open tickets', f'{int(r.unresolved_tickets)} of {int(r.support_tickets_last_90d)}'), ('Last support rating', csat),
+                                 ('Logins this month', f'{int(r.logins_last_30d)}'), ('Products used', f'{int(r.products_used)}'),
+                                 ('Worth a year', rs(r.yearly_value_rs))]
+                        st.markdown('<div class="tiles">' + ''.join(f'<div class="tile"><div class="label">{l}</div><div class="value">{v}</div></div>' for l, v in tiles)
+                                    + '</div>', unsafe_allow_html=True)
 
                 with t_msg:
                     key = (file_id, mid)
                     d = stored(P.draft_with_retry, r)
                     if d is None:
                         if llm.live():
-                            st.info('This merchant has no AI draft yet. Below is a rule-based English draft you can use now, or let Claude write the '
-                                    'regional and English drafts and run every guardrail check (about 30 to 60 seconds).')
-                            if st.button('Write the drafts with AI', type='primary', key=f'gen-{file_id}-{mid}'):
-                                with st.status('Writing the drafts with Claude...', expanded=True) as stat:
+                            st.info("There's no AI draft for this merchant yet. Here's a simple one to start with, or let Claude write it.")
+                            if st.button('Write it with AI (about a minute)', type='primary', key=f'gen-{file_id}-{mid}'):
+                                with st.status('Claude is writing the message...', expanded=True) as stat:
                                     out = P.draft_with_retry(r, progress=lambda m: stat.write(m))
-                                    stat.update(label='Drafts ready' if out and out.get('passed') else 'Done: see the guardrail result', state='complete')
+                                    stat.update(label='Message ready' if out and out.get('passed') else 'Done. Check the safety result below.', state='complete')
                                 st.rerun()
                         else:
-                            st.info('No AI draft for this merchant and AI is off, so this is the rule-based English draft.')
+                            st.info("There's no AI draft for this merchant, and AI is off. Here's a simple one to start with.")
                         drafts, checks, ok = {'English': ('', P.template_draft(r))}, [], True
                     else:
                         drafts = {'English': (d['english'].get('subject', ''), d['english'].get('message', ''))}
@@ -437,63 +512,60 @@ with tab_work:
                         drafts = {l: drafts[l] for l in order if l in drafts}
                         checks, ok = d['checks'], d['passed']
                     ch = channel_for(r.segment)
-                    st.caption(f"{ch[0].upper() + ch[1:]}. Language guessed from the city ({r.get('city', '')}): confirm with the merchant."
-                               + (' Enterprise: English first.' if r.segment == 'Enterprise' else ''))
+                    st.caption(f"{ch[0].upper() + ch[1:]}. We guessed the language from their city, so check it with them first.")
                     dec = ss.decisions.get(key)
                     if dec and dec['status'] == 'Approved':
-                        st.markdown(f"<div class='done'><b>✓ Approved</b> by {dec['by']} at {dec['time']} · {dec['language']}"
-                                    f"{' · edited before approving' if dec['edited'] else ''}<br><span class='muted'>It is in the Outbox at the bottom of the page. "
-                                    "Copy it with the icon on the message and send it from email or WhatsApp.</span></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='done'><b>✓ Approved</b> by {dec['by']} at {dec['time']}{' · you edited it' if dec['edited'] else ''}<br>"
+                                    "<span class='muted'>It's waiting in your outbox below. Copy it and send it from email or WhatsApp.</span></div>",
+                                    unsafe_allow_html=True)
                         st.code(dec['text'], language=None, wrap_lines=True)
                         if '[' in dec['text']:
-                            st.warning('Fill in the two time options in [ ] before you send it.')
+                            st.warning('Fill in the two times in [ ] before you send it.')
                         for w in dec.get('warnings', []):
                             if 'English words' in w:
-                                st.warning(f'Your edit has English words in the {dec["language"]} message ({w.split(": ", 1)[-1]}). Fine for a product name; otherwise write it in {dec["language"]}.')
-                        if st.button('Undo approval', key=f'undo-{file_id}-{mid}'):
-                            ss.decisions.pop(key); log('Approval undone', mid); st.toast(f'Approval undone: {r.get("business_name", mid)} is back to review.'); st.rerun()
+                                st.warning(f"There are English words in the {dec['language']} message ({w.split(': ', 1)[-1]}). "
+                                           f"That's fine for a product name; otherwise write it in {dec['language']}.")
+                        if st.button('Undo', key=f'undo-{file_id}-{mid}'):
+                            ss.decisions.pop(key); log('Approval undone', mid); st.toast(f"Undone. {r.get('business_name', mid)} is back in your list."); st.rerun()
                     elif dec and dec['status'] == 'Not this month':
                         freed = [m for (f, m), v in ss.decisions.items() if f == file_id and v['status'] == 'Not this month']
                         pos = freed.index(mid) if mid in freed else 0
                         nxt = df[df.declining & (df.revenue_rank > len(calls))].sort_values('revenue_rank')
-                        nxt_txt = (f"Slot freed. Next in line: <b>{nxt.iloc[pos].get('business_name', nxt.iloc[pos].merchant_id)}</b> "
-                                   f"({nxt.iloc[pos].merchant_id}, rank {int(nxt.iloc[pos].revenue_rank)})." if len(nxt) > pos
-                                   else 'Slot freed. No other declining merchant is waiting for a call.')
-                        st.markdown(f"<div class='skipped'><b>✗ Not contacting this month</b> · decided by {dec['by']} at {dec['time']}<br>"
+                        nxt_txt = (f"<b>{nxt.iloc[pos].get('business_name', nxt.iloc[pos].merchant_id)}</b> is next up for this slot." if len(nxt) > pos
+                                   else 'Nobody else is waiting for a call.')
+                        st.markdown(f"<div class='skipped'><b>Skipped this month</b> · {dec['by']} at {dec['time']}<br>"
                                     f"Reason: {dec['reason']}<br><span class='muted'>{nxt_txt}</span></div>", unsafe_allow_html=True)
                         if st.button('Undo', key=f'undo-{file_id}-{mid}'):
-                            ss.decisions.pop(key); log('Rejection undone', mid); st.rerun()
+                            ss.decisions.pop(key); log('Skip undone', mid); st.rerun()
                     else:
                         if dec and dec['status'] == 'Writing it myself':
-                            st.markdown(f"<div class='banner'>You chose to rewrite this message ({dec['reason'].lower()}). Edit it below, then approve it.</div>",
-                                        unsafe_allow_html=True)
+                            st.markdown("<div class='banner'>You're rewriting this one. Edit the message, then approve it.</div>", unsafe_allow_html=True)
                         elif not ok:
-                            st.error('The safety checks blocked this draft after one retry. Rewrite it below, then approve it.')
+                            st.error("The safety checks stopped this draft. Rewrite it below, then approve it.")
                         lang = st.radio('Version', list(drafts), horizontal=True, key=f'lang-{file_id}-{mid}', label_visibility='collapsed')
                         subj, body = drafts[lang]
                         original = (f'Subject: {subj}\n\n' if subj else '') + body
-                        edited = st.text_area('Message (edit if you like)', value=original, height=230, key=f'txt-{file_id}-{mid}-{lang}')
+                        edited = st.text_area('Message (you can edit it)', value=original, height=230, key=f'txt-{file_id}-{mid}-{lang}')
                         is_edited = edited.strip() != original.strip()
                         if checks:
                             n_pass = sum(1 for _, okk, _ in checks if okk)
-                            with st.expander(f"{'✓' if ok else '✗'} Safety checks on the {'original ' if is_edited else ''}draft: {n_pass} of {len(checks)} passed"
-                                             + (' · your edits are checked when you approve' if is_edited else '')):
-                                for name, okk, det in checks:
-                                    st.markdown(f"<span class='{'check-ok' if okk else 'check-bad'}'>{'✓' if okk else '✗'}</span> {name}{' · ' + det if det else ''}",
+                            label = (f"✓ Passed all {len(checks)} safety checks" if ok else f"✗ {len(checks) - n_pass} of {len(checks)} safety checks failed")
+                            with st.expander(label + (" · we'll check your edits when you approve" if is_edited else '')):
+                                for cname, okk, det in checks:
+                                    st.markdown(f"<span class='{'check-ok' if okk else 'check-bad'}'>{'✓' if okk else '✗'}</span> {cname}{' · ' + det if det else ''}",
                                                 unsafe_allow_html=True)
                         blk_key = f'blocked-{file_id}-{mid}'
                         if ss.get(blk_key) and ss[blk_key]['text'] == edited:
-                            st.error('Not approved: your edit added something the safety rules do not allow. Remove it and approve again.\n\n'
-                                     + '\n'.join(f"- {n}: **{d}**" for n, d in ss[blk_key]['hits']))
+                            st.error("We couldn't approve this. Your edit includes something we never promise or share:\n\n"
+                                     + '\n'.join(f"- {friendly_check(n)}: **{d}**" for n, d in ss[blk_key]['hits']) + '\n\nTake it out and approve again.')
                         rj_key = f'rj-open-{file_id}-{mid}'
                         b1, b2 = st.columns(2)
-                        if b1.button('✓ Approve and add to outbox', type='primary', key=f'ap-{file_id}-{mid}', width='stretch'):
-                            was_edited = edited.strip() != original.strip()
+                        if b1.button('✓ Approve', type='primary', key=f'ap-{file_id}-{mid}', width='stretch'):
                             warn, hits = [], []
-                            if was_edited:      # a person's edit gets the same safety checks before it can be approved
+                            if is_edited:      # a person's edit gets the same safety checks before it can be approved
                                 chk = G.check_edit(edited, english=(lang == 'English'))
                                 if lang != 'English' and llm.live():
-                                    with st.spinner('Checking your edit (translating it back to English)...'):
+                                    with st.spinner('Checking your edit...'):
                                         back = P.back_translate(lang, edited)
                                     if back:
                                         chk += [(n + ' (your edit, translated back)', okk, det) for n, okk, det in G.check_edit(back) if 'placeholder' not in n]
@@ -503,202 +575,198 @@ with tab_work:
                             if hits:
                                 ss[blk_key] = {'text': edited, 'hits': hits}; log('Approval blocked by safety check', mid, '; '.join(f'{n}: {d}' for n, d in hits)); st.rerun()
                             ss.pop(blk_key, None)
-                            ss.decisions[key] = {'status': 'Approved', 'language': lang, 'text': edited, 'edited': was_edited, 'warnings': warn,
+                            ss.decisions[key] = {'status': 'Approved', 'language': lang, 'text': edited, 'edited': is_edited, 'warnings': warn,
                                                  'by': ss.csm or 'name not given', 'time': dt.datetime.now().strftime('%H:%M'), 'reason': ''}
-                            log('Approved', mid, f"{lang}{' (edited, re-checked)' if was_edited else ''}")
-                            st.toast(f'Approved: {r.get("business_name", mid)} is in the outbox.', icon='✅'); st.rerun()
-                        if b2.button('✗ Reject...', key=f'rj-{file_id}-{mid}', width='stretch'):
+                            log('Approved', mid, f"{lang}{' (edited, re-checked)' if is_edited else ''}")
+                            st.toast(f"Approved. {r.get('business_name', mid)} is in your outbox.", icon='✅'); st.rerun()
+                        if b2.button('Not now...', key=f'rj-{file_id}-{mid}', width='stretch'):
                             ss[rj_key] = not ss.get(rj_key, False)
                         if ss.get(rj_key):
                             with st.container(border=True):
-                                why = st.radio('Why are you rejecting this draft?', ['The cause or playbook looks wrong', 'The wording or tone is not right',
-                                               'This merchant was already contacted', 'Not worth a call this month', 'Other'], key=f'rjwhy-{file_id}-{mid}')
-                                nxt_step = st.radio('What happens next?', ['I will rewrite the message myself (it stays on the list)',
-                                                    'Do not contact this merchant this month (frees the slot)'], key=f'rjnext-{file_id}-{mid}')
+                                why = st.radio("What's not right?", ['Wrong cause or plan', 'The wording or tone is off', "We're already in touch with them",
+                                               'Not worth a call this month', 'Something else'], key=f'rjwhy-{file_id}-{mid}')
+                                nxt_step = st.radio('What next?', ["I'll rewrite it (they stay on the list)",
+                                                    'Skip them this month (the next merchant gets the slot)'], key=f'rjnext-{file_id}-{mid}')
                                 c1, c2 = st.columns(2)
-                                if c1.button('Confirm', type='primary', key=f'rjok-{file_id}-{mid}', width='stretch'):
-                                    status = 'Writing it myself' if nxt_step.startswith('I will') else 'Not this month'
+                                if c1.button('Done', type='primary', key=f'rjok-{file_id}-{mid}', width='stretch'):
+                                    status = 'Writing it myself' if nxt_step.startswith("I'll") else 'Not this month'
                                     ss.decisions[key] = {'status': status, 'language': lang, 'text': '', 'edited': False, 'reason': why,
                                                          'by': ss.csm or 'name not given', 'time': dt.datetime.now().strftime('%H:%M')}
-                                    ss[rj_key] = False; log('Rejected: ' + status.lower(), mid, why); st.rerun()
+                                    ss[rj_key] = False; log('Rewriting' if status == 'Writing it myself' else 'Skipped this month', mid, why); st.rerun()
                                 if c2.button('Cancel', key=f'rjno-{file_id}-{mid}', width='stretch'):
                                     ss[rj_key] = False; st.rerun()
-                        st.caption(f"Approving puts the message in the Outbox for you to send. The app never sends anything itself. Signed as {ss.csm or 'the CSM'}.")
+                        st.caption(f"Signed as {ss.csm or 'the CSM'}. Approved messages wait in your outbox; nothing is sent from here.")
 
                 with t_trend:
-                    months = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']
+                    months = ['Month 1', 'Month 2', 'Month 3', 'Month 4', 'Month 5', 'Month 6']
                     tpv = [r[f'tpv_m{i}_inr_lakh'] for i in range(1, 7)]
-                    f1 = go.Figure(go.Scatter(x=months, y=tpv, mode='lines+markers', line=dict(color=BLUE, width=3), fill='tozeroy', fillcolor='rgba(51,149,255,.10)', hovertemplate='%{x}: Rs %{y} lakh<extra></extra>'))
-                    f1.add_hline(y=float(np.mean(tpv[:3])), line_dash='dot', line_color=NAVY, annotation_text='months 1-3 average', annotation_font_size=10)
-                    f1.update_layout(height=220, margin=dict(l=0, r=0, t=28, b=0), title=dict(text='Monthly volume (Rs lakh)', font=dict(size=13)),
+                    f1 = go.Figure(go.Scatter(x=months, y=tpv, mode='lines+markers', line=dict(color=BLUE, width=3), fill='tozeroy',
+                                              fillcolor='rgba(51,149,255,.10)', hovertemplate='%{x}: Rs %{y} lakh<extra></extra>'))
+                    f1.add_hline(y=float(np.mean(tpv[:3])), line_dash='dot', line_color=NAVY, annotation_text='first three months, on average', annotation_font_size=10)
+                    f1.update_layout(height=220, margin=dict(l=0, r=0, t=28, b=0), title=dict(text='Payment volume each month (Rs lakh)', font=dict(size=13)),
                                      plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', yaxis=dict(rangemode='tozero', gridcolor='rgba(128,128,128,.2)'))
                     st.plotly_chart(f1, width='stretch', config={'displayModeBar': False})
-                    f2 = go.Figure(go.Bar(x=['Months 1-3', 'Months 4-6'], y=[r.success_rate_m1_m3_pct, r.success_rate_m4_m6_pct],
+                    sr_drop = r.success_rate_m1_m3_pct - r.success_rate_m4_m6_pct
+                    f2 = go.Figure(go.Bar(x=['First three months', 'Last three months'], y=[r.success_rate_m1_m3_pct, r.success_rate_m4_m6_pct],
                                           marker_color=[GREY, '#E5484D' if sr_drop > 2 else BLUE],
                                           text=[f'{r.success_rate_m1_m3_pct:.1f}%', f'{r.success_rate_m4_m6_pct:.1f}%'], textposition='outside'))
-                    f2.update_layout(height=200, margin=dict(l=0, r=0, t=28, b=0), title=dict(text='Payment success rate', font=dict(size=13)),
+                    f2.update_layout(height=200, margin=dict(l=0, r=0, t=28, b=0), title=dict(text='Payments that went through', font=dict(size=13)),
                                      yaxis=dict(range=[min(70, r.success_rate_m4_m6_pct - 5), 100], visible=False), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
                     st.plotly_chart(f2, width='stretch', config={'displayModeBar': False})
-                    st.caption('Internal only. Drafts never mention volume or numbers.')
+                    st.caption('Just for you. Messages to merchants never mention numbers.')
 
                 with t_ask:
-                    st.caption("Answers come only from this merchant's data and the method. If the data does not show it, it says so.")
-                    for i, (lab, q) in enumerate([('Why is it on the list?', 'Why is this merchant on the call list?'),
-                                                  ('What to focus on in the call', 'What should I focus on in the call?'),
-                                                  ("What we don't know", 'What do we not know about this merchant?')]):
+                    st.caption('Ask anything about this merchant. Answers only use their data, and say so when the data is silent.')
+                    # the question wording is what saved answers are stored under, so it stays as it is behind the friendlier labels
+                    presets = [('Why are they on the list?', 'Why is this merchant on the call list?'),
+                               ('What should I focus on in the call?', 'What should I focus on in the call?'),
+                               ("What don't we know?", 'What do we not know about this merchant?')]
+                    for i, (lab, q) in enumerate(presets):
                         if st.button(lab, key=f'q{i}-{file_id}-{mid}', width='stretch'):
                             ss.qa[(file_id, mid)] = q
-                    free = st.text_input('Or ask your own question', key=f'free-{file_id}-{mid}', placeholder='e.g. Is the drop seasonal?')
+                    free = st.text_input('Or ask your own', key=f'free-{file_id}-{mid}', placeholder='e.g. Is this a seasonal dip?')
                     if free and free != ss.get(f'last-free-{file_id}-{mid}'):
                         ss.qa[(file_id, mid)] = free; ss[f'last-free-{file_id}-{mid}'] = free
                     q = ss.qa.get((file_id, mid))
                     if q:
                         ans, achk = stored(P.answer_question, r, q)
                         if ans is None and llm.live():
-                            with st.spinner('Asking Claude (a few seconds)...'):
+                            with st.spinner('Asking Claude...'):
                                 ans, achk = P.answer_question(r, q)
-                        st.markdown(f'**{q}**')
+                        st.markdown(f"**{next((lab for lab, qq in presets if qq == q), q)}**")
                         if ans is None:
-                            st.info('No stored answer for this question, and AI is off. Switch AI on in the sidebar to ask new questions.')
+                            st.info("There's no saved answer for this one. Turn on AI drafting in the sidebar to ask new questions.")
                         elif achk and not achk[1]:
-                            st.warning("This answer quoted a number that is not in the merchant's data, so it is hidden. Try rephrasing.")
+                            st.warning("We hid this answer because it quoted a number that isn't in their data. Try asking another way.")
                         else:
                             st.write(ans)
 
-    with st.expander('See how every merchant is ranked (all of them, with risk, reason and playbook)'):
+    with st.expander(f'See all {n_merch} merchants'):
         allm = df.assign(_o=df.revenue_rank.fillna(999), _t=df.tier.map(tier_key)).sort_values(['_o', '_t', 'tpv_change'])
-        full = pd.DataFrame({'Rank': allm.revenue_rank.map(lambda x: '' if pd.isna(x) else str(int(x))), 'ID': allm.merchant_id,
-                             'Merchant': allm.get('business_name', allm.merchant_id), 'Size': allm.segment, 'Risk': [TIER_SHORT[tier_key(t)] for t in allm.tier],
-                             'Reason': [(nc_short(r) if r.driver_main == core.NC else DRIVER_NAME[r.driver_main]) if isinstance(r.driver_main, str) else r.why_not_flagged for _, r in allm.iterrows()],
-                             'Playbook': [pb_label(r) + ' ' + PB[r.playbook_id]['name'] for r in allm.itertuples()],
-                             'Track': np.where(allm.csm_call_list, 'CSM call', np.where(allm.am_alert, 'Account-manager alert', np.where(allm.automated_track, 'Automated digital', 'No outreach')))})
+        full = pd.DataFrame({'Rank': allm.revenue_rank.map(lambda x: '' if pd.isna(x) else str(int(x))),
+                             'Merchant': allm.get('business_name', allm.merchant_id), 'ID': allm.merchant_id, 'Size': allm.segment,
+                             'Urgency': [urgency(r) for _, r in allm.iterrows()],
+                             'Why': [why_short(r) if isinstance(r.driver_main, str) else why_left(r) for _, r in allm.iterrows()],
+                             'Plan': [r.playbook_id + ' · ' + PB[r.playbook_id]['name'] for r in allm.itertuples()],
+                             'What happens': np.where(allm.csm_call_list, 'Call', np.where(allm.am_alert, 'Account manager alert',
+                                                      np.where(allm.automated_track, 'Automated message', 'Nothing this month')))})
         st.dataframe(full, hide_index=True, width='stretch', height=420)
 
-    # ---- needs a person
-    all_pricing = len(review) and review.review_likely_bucket.str.startswith('Likely commercial (renews').all()
-    st.markdown('### Likely pricing: a person confirms' if all_pricing else '### Causes the numbers cannot show: a person confirms')
-    if len(review): st.caption('These merchants were picked and ranked like every other: falling volume that is not recovering, times yearly value. The numbers show no '
-               'performance, service or engagement problem. The playbook comes from the renewal date: within 60 days is PB-3\'s own trigger in the data pack, so '
-               'PB-3 Commercial review. The account manager note is shown as supporting evidence; it is never used to pick or rank a merchant. Confirm the cause '
-               'after the call and the playbook follows. Merchants outside the 15 calls that renew within 60 days go to their account manager, who owns any pricing talk.')
-    if len(review) == 0:
-        st.markdown('<div class="muted">None this month.</div>', unsafe_allow_html=True)
-    FAM_NAME = {'performance': 'performance (success rate)', 'service': 'service (tickets, CSAT)', 'engagement': 'engagement (logins, products)'}
+    # ---- check before acting (cause not in the numbers)
+    if len(review):
+        all_pricing = review.review_likely_bucket.str.startswith('Likely commercial (renews').all()
+        st.markdown('### Check these before acting')
+        st.markdown("<div class='lead'>" + ("The numbers don't explain why these merchants are slipping, but they all renew soon. "
+                                            "It's most likely pricing, so confirm it on the call." if all_pricing else
+                                            "The numbers don't explain why these merchants are slipping. Confirm the cause on the call.") + "</div>",
+                    unsafe_allow_html=True)
+        with st.popover('Why the pricing playbook?'):
+            st.markdown("PB-3, the commercial review, is meant for merchants who mention a competitor or renew within about 60 days. "
+                        "When nothing in the numbers explains a drop and the renewal is close, pricing is the likeliest reason.\n\n"
+                        "Account manager notes back this up, but they never decide who's on the list. Merchants outside your calls who renew "
+                        "within 60 days go to their account manager, who handles any pricing talk.")
+    opts = ['Not confirmed yet', 'Pricing (PB-3)', 'Failing payments (PB-1)', 'Support issues (PB-2)', 'Using us less (PB-4)', 'Something else (PB-6)']
     for _, r in review.iterrows():
-        note = r.get('account_manager_note'); nr = stored(P.read_note, note) if isinstance(note, str) else None
-        scores = {k: r[f'fam_{k}'] for k in ['performance', 'service', 'engagement']}
-        top_fam = max(scores, key=scores.get)
+        note = r.get('account_manager_note')
         seasonal = any(x in str(r.industry) for x in core.SEASONAL_INDUSTRIES)
         renew_soon = r.days_to_contract_renewal <= core.PB3_RENEWAL_DAYS
-        csat = '–' if pd.isna(r.last_csat_1_to_5) else f'{r.last_csat_1_to_5:.0f}/5'
-        where = 'On the call list' if r.csm_call_list else ('Account-manager alert' if r.am_alert else 'Automated track')
-        facts = [('Renewal', f"Renews in {int(r.days_to_contract_renewal)} days: " + ("inside PB-3's 60-day window, so a pricing review is due now" if renew_soon
-                  else "outside PB-3's 60-day window"), renew_soon),
-                 ('Account manager note', ((f"“{note}”" + (f" (AI reads it as {nr['category']})" if nr and nr.get('category') else '')) if isinstance(note, str) else 'None')
-                  + ' · supporting evidence only, not used to pick or rank',
-                  bool(nr and nr.get('category') == 'pricing')),
-                 ('Volume', f"Down {abs(r.tpv_change):.0%} (months 4-6 vs 1-3); projected {r.projected_loss_m9:.0%} below its healthy level by month 9", r.imminent),
-                 ('Operational signals', f"Success rate {r.success_rate_m1_m3_pct:.1f}% → {r.success_rate_m4_m6_pct:.1f}% · unresolved tickets {int(r.unresolved_tickets)} of "
-                  f"{int(r.support_tickets_last_90d)} · CSAT {csat} · logins (30 days) {int(r.logins_last_30d)} · products {int(r.products_used)}. "
-                  f"None is high enough to name a cause; the strongest is {FAM_NAME[top_fam]} ({scores[top_fam]:+.1f} SD).", False),
-                 ('Seasonality', f"{r.industry} is a seasonal industry: compare with last year's pattern before acting" if seasonal else f"{r.industry} is not a seasonal industry", seasonal),
-                 ('At stake', f"{rs(r.yearly_value_rs)} a year · {r.segment} merchant · with Razorpay {int(r.tenure_months)} months", False)]
-        asks = ['Has anything changed in how you take payments, or in who manages the account?']
-        if renew_soon or (nr and nr.get('category') == 'pricing'):
-            asks.insert(0, 'Are you reviewing pricing or comparing providers ahead of renewal?')
+        where = 'On your call list' if r.csm_call_list else ('Sent to their account manager' if r.am_alert else 'Automated message')
+        facts = [('Renews in', f"{int(r.days_to_contract_renewal)} days", renew_soon),
+                 ('Account manager heard', f"“{note}”" if isinstance(note, str) else 'Nothing noted', note_category(r) == 'pricing'),
+                 ('Worth', f"{rs(r.yearly_value_rs)} a year", False)]
+        scores = {k: r[f'fam_{k}'] for k in ['performance', 'service', 'engagement']}
+        top_fam = max(scores, key=scores.get)
+        asks = ['Has anything changed in how you take payments, or in who looks after the account?']
+        if renew_soon or note_category(r) == 'pricing':
+            asks.insert(0, 'Are you reviewing pricing or comparing providers before your renewal?')
         if seasonal:
-            asks.append('Is this dip part of your usual seasonal pattern?')
+            asks.append('Is this dip part of your usual season?')
         asks.append({'performance': 'Have your customers mentioned failed payments?', 'service': 'Is anything still open with our support team?',
                      'engagement': 'Is the dashboard still giving your team what it needs?'}[top_fam])
         cA, cB = st.columns([3, 1.3])
         with cA:
             rows = ''.join(f"<div class='k'>{k}</div><div class='v{' hot' if hot else ''}'>{v}</div>" for k, v, hot in facts)
-            st.markdown(f"<div class='card'><b>{r.get('business_name', r.merchant_id)}</b> <span class='muted'>· {r.merchant_id} · {where}</span><br>"
-                        f"{pill(nc_short(r).replace(' · confirm', ''), 'blue')}{pill('Suggested: ' + r.playbook, 'grey')}"
+            st.markdown(f"<div class='card'><b>{r.get('business_name', r.merchant_id)}</b> <span class='muted'>· {where}</span><br>"
+                        f"{pill(nc_short(r), 'blue')}{pill('Plan: ' + r.playbook_id + ' · ' + PB[r.playbook_id]['name'], 'grey')}"
                         f"<div class='facts'>{rows}</div>"
-                        f"<div class='k' style='margin-top:8px;opacity:.62;font-weight:600;font-size:.88rem'>Ask on the call</div>"
+                        f"<div class='k' style='margin-top:10px;opacity:.62;font-weight:600;font-size:.88rem'>Ask on the call</div>"
                         f"<ul class='asks'>{''.join(f'<li>{a}</li>' for a in asks)}</ul></div>", unsafe_allow_html=True)
+            with st.expander('Their other numbers'):
+                csat = '–' if pd.isna(r.last_csat_1_to_5) else f'{r.last_csat_1_to_5:.0f} out of 5'
+                st.markdown(f"Volume down {abs(r.tpv_change):.0%} over the last three months. "
+                            f"Payment success {r.success_rate_m1_m3_pct:.1f}% → {r.success_rate_m4_m6_pct:.1f}%, "
+                            f"{plural(int(r.unresolved_tickets), 'open ticket')}, last support rating {csat}, "
+                            f"{plural(int(r.logins_last_30d), 'login')} this month, {plural(int(r.products_used), 'product')} used. "
+                            "None of these stands out enough to explain the drop."
+                            + (f" {r.industry} is a seasonal business, so compare with last year before acting." if seasonal else ''))
         with cB:
-            opts = ['Not confirmed yet', 'Pricing / commercial: PB-3', 'Performance: PB-1', 'Service: PB-2', 'Engagement: PB-4', 'Other or external: PB-6']
             prev_choice = ss.review_decisions.get((file_id, r.merchant_id), opts[0])
-            choice = st.selectbox('After the call, confirm the cause', opts, index=opts.index(prev_choice), key=f'rv-{file_id}-{r.merchant_id}')
+            choice = st.selectbox('After the call, what was it?', opts, index=opts.index(prev_choice), key=f'rv-{file_id}-{r.merchant_id}')
             if choice != prev_choice:
                 ss.review_decisions[(file_id, r.merchant_id)] = choice; log('Cause confirmed', r.merchant_id, choice)
-                st.toast(f"Confirmed for {r.get('business_name', r.merchant_id)}: {choice}", icon='✅')
+                st.toast(f"Saved. {r.get('business_name', r.merchant_id)}: {choice}", icon='✅')
             if choice != opts[0]:
-                st.markdown(f"<div class='done' style='font-size:.86rem'>✓ Confirmed: <b>{choice}</b><br><span class='muted'>by {ss.csm or 'name not given'}; "
-                            "logged</span></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='done' style='font-size:.88rem'>✓ Confirmed: <b>{choice}</b><br><span class='muted'>Saved to the activity log</span></div>",
+                            unsafe_allow_html=True)
             else:
-                st.caption('Pick the cause once you have spoken to the merchant. The playbook then follows from it.')
+                st.caption('Pick the cause once you have spoken to them. The plan follows from it.')
 
-    # ---- outbox, exports and log
-    st.markdown('### Outbox: approved messages ready to send')
+    # ---- outbox, downloads and activity log
+    st.markdown('### Ready to send')
     approved = [(m, v) for (f, m), v in ss.decisions.items() if f == file_id and v['status'] == 'Approved']
     if not approved:
-        st.markdown("<div class='muted'>Nothing approved yet. Open a merchant in the call list, check the message and click <b>Approve and add to outbox</b>.</div>",
-                    unsafe_allow_html=True)
+        st.markdown("<div class='muted'>Nothing here yet. Approve a message and it lands here.</div>", unsafe_allow_html=True)
     for m, v in approved:
         rr = by_id.loc[m]
-        with st.expander(f"✓ {rr.get('business_name', m)} · {channel_for(rr.segment)} · {v['language']} · approved by {v['by']} at {v['time']}"):
+        with st.expander(f"✓ {rr.get('business_name', m)} · {v['language']} · approved at {v['time']}"):
+            st.caption(channel_for(rr.segment).capitalize())
             st.code(v['text'], language=None, wrap_lines=True)
     skipped = [(m, v) for (f, m), v in ss.decisions.items() if f == file_id and v['status'] == 'Not this month']
     if skipped:
-        st.markdown('<div class="muted">Not contacting this month: ' + '; '.join(f"{by_id.loc[m].get('business_name', m)} ({v['reason'].lower()})" for m, v in skipped)
-                    + '</div>', unsafe_allow_html=True)
+        st.markdown('<div class="muted">Skipped this month: ' + '; '.join(f"{name_of(m)} ({v['reason'].lower()})" for m, v in skipped) + '</div>',
+                    unsafe_allow_html=True)
     e1, e2, e3 = st.columns(3)
-    appr = [{'merchant_id': m, 'business_name': by_id.loc[m].get('business_name', m), 'channel': channel_for(by_id.loc[m].segment),
+    appr = [{'merchant_id': m, 'business_name': name_of(m), 'channel': channel_for(by_id.loc[m].segment),
              'language': v['language'], 'approved_by': v['by'], 'edited_by_csm': v['edited'], 'message': v['text']} for m, v in approved]
-    e1.download_button(f'Download approved messages ({len(appr)})', pd.DataFrame(appr).to_csv(index=False).encode('utf-8-sig') if appr else b'',
+    e1.download_button(f'Download messages ({len(appr)})', pd.DataFrame(appr).to_csv(index=False).encode('utf-8-sig') if appr else b'',
                        file_name='approved_messages.csv', disabled=not appr, width='stretch')
     out_cols = ['merchant_id', 'segment', 'industry', 'tier', 'driver_main', 'driver_second', 'review_likely_bucket', 'needs_person', 'playbook_id', 'playbook_also_id', 'playbook', 'playbook_also',
                 'delivery', 'revenue_rank', 'call_list_status', 'call_this_week', 'am_alert', 'automated_track', 'expected_saving_rs', 'why_not_flagged']
     ranked = df.assign(_o=df.revenue_rank.fillna(999)).sort_values(['_o', 'tier'])[[c for c in out_cols if c in df]]
-    e2.download_button('Download ranked list of all merchants', ranked.to_csv(index=False).encode('utf-8-sig'), file_name='ranked_merchants.csv', width='stretch')
-    e3.download_button(f'Download decision log ({len(ss.audit)} entries)', pd.DataFrame(ss.audit).to_csv(index=False).encode('utf-8-sig') if ss.audit else b'',
+    e2.download_button('Download the full ranked list', ranked.to_csv(index=False).encode('utf-8-sig'), file_name='ranked_merchants.csv', width='stretch')
+    e3.download_button(f'Download activity log ({len(ss.audit)})', pd.DataFrame(ss.audit).to_csv(index=False).encode('utf-8-sig') if ss.audit else b'',
                        file_name='decision_log.csv', disabled=not ss.audit, width='stretch')
     if ss.audit:
-        with st.expander(f'Decision log: who did what ({len(ss.audit)} entries)'):
+        with st.expander(f'Activity log ({len(ss.audit)})'):
             st.dataframe(pd.DataFrame(ss.audit).iloc[::-1], hide_index=True, width='stretch', height=220)
 
-
-    with st.expander('How the ranking works'):
-        st.markdown(f"""
-1. **Is volume falling and staying down?** We measure how much a merchant's volume normally moves month to month ({S['typical_wobble']:.1%} on this file). A merchant is *declining* if months 4-6 fell more than three of those wobbles below months 1-3 (or month 6 alone fell sharply) and volume did not bounce back. Dips that recover are not flagged; see the *Why not flagged* tab.
-2. **How fast?** The months 4-6 trend is projected to month 9. More than half of healthy volume gone = *imminent fade*, the brief's definition of churn.
-3. **Why?** Three problem scores from the merchant's own signals: performance (success rate), service (unresolved tickets, CSAT), engagement (logins, products). A score more than 1 standard deviation above average names the driver. If none is high, the cause is one the numbers cannot show (most often pricing) and a person confirms it on the call. Blank CSAT is never used to name a driver. Account manager notes are shown as supporting evidence but never decide who is picked, the driver or the rank.
-4. **Which playbook?** Always one of the six in the data pack: performance PB-1, service PB-2, engagement PB-4. With no cause in the numbers: PB-3 Commercial review when renewal is within 60 days (PB-3's own trigger in the data pack), otherwise the strongest weak signal, or PB-3 if there is none. A second problem adds its playbook. Merchant size sets who runs it.
-5. **Who gets the 15 calls?** Chance of leaving x chance of saving if we call x yearly value, minus Rs 1,500 per call. The chance of leaving comes from the data (100% for an imminent fade, 50% for other declines). The chance of saving is an assumption by cause: performance and service 60% (Razorpay can fix them), no cause in the numbers 40%, engagement 30%. The data has no outcomes, so the list is re-run under 11 versions of these assumptions; merchants that drop out under some are marked *Borderline*. Outcome data (which merchants recovered after a call, by cause) would replace these assumptions.
-6. **AI's role:** reading notes, writing the reason line and the drafts, checking translations and answering questions. AI never decides who is flagged, the driver, the playbook or the ranking. Code checks every draft; a person approves every message. AI can be switched off in the sidebar.
-""")
-
-# ================================================================== WHY NOT FLAGGED
+# ================================================================== LEFT OFF, AND WHY
 with tab_why:
-    st.markdown('### Why these merchants are not on the list')
-    st.caption('The brief warns that seasonal businesses, small merchants and busy growing merchants can look risky without being at risk. '
-               'This view shows how each of them was told apart.')
+    st.markdown("### They looked risky, but aren't")
+    st.markdown("<div class='lead'>Seasonal dips, small shops and busy, growing merchants can all look worrying. Here's why each one was left off.</div>",
+                unsafe_allow_html=True)
     nf = df[~df.declining].copy()
-    groups = [g for g in ['Seasonal dip', 'Bounced-back dip', 'Small and steady', 'Busy and growing', 'Growing', 'Steady', 'Possible decline', 'Watch list']
-              if g in set(nf.why_group)]
+    order = ['Seasonal dip', 'Bounced-back dip', 'Small and steady', 'Busy and growing', 'Growing', 'Steady', 'Possible decline', 'Watch list']
+    groups = [g for g in order if g in set(nf.why_group)]
     counts = nf.why_group.value_counts()
     if not groups:
-        st.info('Every merchant in this file is declining, so nobody falls in this view.')
-    for col, g in zip(st.columns(len(groups)) if groups else [], groups):
-        col.markdown(f'<div class="kpi"><div class="label">{g}</div><div class="value">{int(counts[g])}</div></div>', unsafe_allow_html=True)
-    st.write('')
-    pick = st.segmented_control('Show', groups, default=groups[0], key='why-pick') if groups else None
-    show = nf[nf.why_group == pick] if pick else nf
-    st.dataframe(pd.DataFrame({'ID': show.merchant_id, 'Merchant': show.get('business_name', show.merchant_id), 'Size': show.segment,
-                               'Volume 4-6 vs 1-3': [f'{x:+.0%}' for x in show.tpv_change], 'Why not flagged': show.why_not_flagged,
-                               'Playbook': show.playbook, 'Account manager note': show.account_manager_note.fillna('')}),
-                 hide_index=True, width='stretch', height=min(36 * (len(show) + 1) + 4, 560),
-                 column_config={'Why not flagged': st.column_config.TextColumn(width='large')})
+        st.info('Every merchant in this file is slipping, so nobody was left off.')
+    else:
+        labels = {GROUP_NAME[g]: g for g in groups}
+        pick = st.segmented_control('Show', list(labels), default=GROUP_NAME[groups[0]], key='why-pick',
+                                    format_func=lambda x: f'{x} ({int(counts[labels[x]])})', label_visibility='collapsed')
+        show = nf[nf.why_group == labels[pick]] if pick else nf
+        st.dataframe(pd.DataFrame({'Merchant': show.get('business_name', show.merchant_id), 'Business': show.industry, 'Size': show.segment,
+                                   'Last 3 months': [f'{x:+.0%}' for x in show.tpv_change], 'Why we left them off': [why_left(r) for _, r in show.iterrows()],
+                                   'Account manager note': show.account_manager_note.fillna('')}),
+                     hide_index=True, width='stretch', height=min(36 * (len(show) + 1) + 4, 560),
+                     column_config={'Why we left them off': st.column_config.TextColumn(width='large')})
 
 # ------------------------------------------------------------------ finish the experimental watch list after the page is drawn
-# Everything above is already on screen. The watch list is the only slow step (it does not change the 15 calls),
+# Everything above is already on screen. The watch list is the only slow step (it does not change the calls),
 # so it runs last, with a note in the sidebar, and the page refreshes when it is done.
 if not res.get('watch_done', True):
-    status_box.info(f"Loaded **{file_name}**: {n_merch} merchants scored, {n_c} call{'s' if n_c != 1 else ''} ready. "
-                    "Finishing the experimental watch list in the background...", icon='⏳')
+    status_box.info(f"**Loaded.** {n_merch} merchants · {plural(n_c, 'call')}. Finishing a few last checks...", icon='⏳')
     run_engine(file_bytes, file_name, True)
     ss.watch_ready.add(file_id)
     st.rerun()
