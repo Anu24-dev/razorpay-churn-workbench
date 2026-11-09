@@ -344,7 +344,13 @@ Fixability is an estimate (payment failures and support issues highest, then pri
 *Close call* marks merchants that drop out of the top 15 under some of them.
 
 **Money.** Revenue at risk is the annual value of every declining merchant (the data pack's rule: 12 months at 1% of the latest month's volume), as if all of them left.
-The likely saving uses what testing showed (88 of 96 flagged merchants did leave) and a range of 1 to 3 in 10 calls keeping the merchant, because the data has no outcomes. The cost of the calls is taken off.
+The likely saving uses what testing showed (88 of 96 flagged merchants did leave) and the share a call keeps from a published randomised trial in which likely leavers were listed to be called:
+their leaving rate fell from 17.2% to 15.3%, so about 1 in 9 were kept (Godinho de Matos, Ferreira and Belo, Marketing Science, 2018). The cost of the calls is taken off.
+
+**Optimistic case.** If 3 in 10 calls keep the merchant, the default used in churn research (Verbraken, Verbeke and Baesens, 2013), the saving is {rs(V['call_list_value'] * 88 / 96 * 0.3 - V['outreach_cost'])} a year. This is an assumption, not a measurement.
+
+**Limits.** The trial was with telecom customers, not merchants with a dedicated CSM. Outreach can also backfire: in another trial, a retention campaign raised leaving from about 6% to 10% (Ascarza, Iyengar and Schleicher, 2016).
+Recording who stayed after each call would replace these borrowed figures with Razorpay's own.
 
 **Role of AI.** AI drafts the summaries and messages and checks translations. It does not decide who is on the list. Every message is approved by a CSM before it is sent.
 """)
@@ -360,14 +366,15 @@ tab_work, tab_why = st.tabs(["This month's calls", 'Not flagged'])
 # ================================================================== YOUR CALLS
 with tab_work:
     cover = V['call_list_value'] / V['at_risk_value'] if V['at_risk_value'] else 0
-    # Saving: 88 of 96 flagged merchants left in testing (four answer-key datasets); a call keeps 1 to 3 in 10 (unknown, so a range)
-    lo, hi = (V['call_list_value'] * 88 / 96 * r - V['outreach_cost'] for r in (0.1, 0.3))
+    # Saving: 88 of 96 flagged merchants left in testing (four answer-key datasets); a call keeps about 1 in 9
+    # (randomised trial: churn fell 1.9 points from 17.2%, Godinho de Matos, Ferreira & Belo, Marketing Science 2018)
+    saving = V['call_list_value'] * 88 / 96 * (1.9 / 17.2) - V['outreach_cost']
     cards = [('Merchants at risk', f"{S['at_risk']}", f"{S['imminent']} critical"),
              ('Annual revenue at risk', rs(V['at_risk_value']), f"if all {S['at_risk']} declining merchants left"),
              (f"Reached by the {plural(len(calls), 'call')}", rs(V['call_list_value']) if len(calls) else '–',
               f"{cover:.0%} of the revenue at risk" if len(calls) else 'no calls needed'),
-             ('Likely saving from the calls', f"Rs {lo / 1e5:.1f}–{hi / 1e5:.1f} lakh" if len(calls) else '–',
-              'a year, if 1 to 3 in 10 calls keep the merchant (9 in 10 flagged merchants left in testing)')]
+             ('Likely saving from the calls', rs(saving) if len(calls) else '–',
+              'a year, if 1 in 9 calls keeps the merchant, as in a published trial')]
     st.markdown('<div class="kpis">' + ''.join(f'<div class="kpi{" accent" if i == 0 else ""}"><div class="label">{lab}</div><div class="value">{val}</div>'
                                                f'<div class="sub">{sub}</div></div>' for i, (lab, val, sub) in enumerate(cards)) + '</div>', unsafe_allow_html=True)
 

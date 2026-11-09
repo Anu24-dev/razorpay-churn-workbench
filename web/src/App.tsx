@@ -15,6 +15,9 @@ type LogEntry = { time: string; by: string; merchant_id: string; action: string;
 const PRESETS: [string, string][] = [['Why are they on the list?', 'Why is this merchant on the call list?'],
   ['What should I focus on in the call?', 'What should I focus on in the call?'], ['What is not known yet?', 'What do we not know about this merchant?']]
 const TESTED_LEAVE_RATE = 88 / 96   // share of flagged (declining) merchants that did leave, across four datasets with answer keys
+// Share of would-be leavers a call keeps. Randomised trial where likely churners were listed to be called: churn fell 1.9 points from 17.2%
+// (Godinho de Matos, Ferreira & Belo, Marketing Science 2018). 30% is the default in churn-profit research (Verbraken et al. 2013), shown only as the optimistic case.
+const SAVE_RATE = 1.9 / 17.2, SAVE_RATE_OPTIMISTIC = 0.3
 const now = () => new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
 const nameOf = (r: Row) => r.business_name ?? r.merchant_id
 
@@ -112,8 +115,8 @@ export default function App() {
   if (!data) return <div className="loading"><div className="spinner" /><div>Loading this month's merchants…</div></div>
   const S = data.summary, V = data.value, PB = data.playbooks
   const cover = V.at_risk_value ? V.call_list_value / V.at_risk_value : 0
-  // Saving: 9 in 10 flagged merchants left in testing (88 of 96 across four answer-key datasets); a call keeps 1 to 3 in 10 of them (unknown, so a range)
-  const saveLow = V.call_list_value * TESTED_LEAVE_RATE * 0.1 - V.outreach_cost, saveHigh = V.call_list_value * TESTED_LEAVE_RATE * 0.3 - V.outreach_cost
+  // Saving: 9 in 10 flagged merchants left in testing (88 of 96 across four answer-key datasets); a call keeps about 1 in 9 of them (field trial)
+  const saving = V.call_list_value * TESTED_LEAVE_RATE * SAVE_RATE - V.outreach_cost
   const open = openId ? byId.get(openId) ?? null : null
   const callIdx = open ? calls.findIndex(r => r.merchant_id === open.merchant_id) : -1
 
@@ -152,8 +155,8 @@ export default function App() {
           <Kpi label="Annual revenue at risk" value={V.at_risk_value} format={rs} sub={`if all ${S.at_risk} declining merchants left`} delay={60} />
           <Kpi label={`Reached by the ${plural(calls.length, 'call')}`} value={V.call_list_value} format={rs} sub={calls.length ? `${pct(cover)} of the revenue at risk` : 'no calls needed'} delay={120} />
           <div className="kpi rise" style={{ animationDelay: '180ms' }}><div className="kpi-label">Likely saving from the calls</div>
-            <div className="kpi-value">{calls.length ? `${rs(saveLow).replace(' lakh', '')}–${rs(saveHigh).replace('Rs ', '')}` : '–'}</div>
-            <div className="kpi-sub">a year, if 1 to 3 in 10 calls keep the merchant <button className="link" onClick={() => setHow(true)}>How?</button></div></div>
+            <div className="kpi-value">{calls.length ? rs(saving) : '–'}</div>
+            <div className="kpi-sub">a year, if 1 in 9 calls keeps the merchant, as in a published trial <button className="link" onClick={() => setHow(true)}>How?</button></div></div>
         </div>
       </section>
 
@@ -581,7 +584,9 @@ function HowModal({ S, V, onClose }: { S: any; V: any; onClose: () => void }) {
           <li><b>Annual value of a merchant.</b> The data pack's rule: 12 months of net revenue at the latest month's volume, with net revenue at 1% of payment volume.</li>
           <li><b>Revenue at risk ({rs(V.at_risk_value)}).</b> The annual value of every declining merchant, as if all of them left.</li>
           <li><b>Reached by the calls ({rs(V.call_list_value)}).</b> The annual value of the merchants on this month's calls.</li>
-          <li><b>Likely saving ({rs(V.call_list_value * TESTED_LEAVE_RATE * 0.1 - V.outreach_cost)} to {rs(V.call_list_value * TESTED_LEAVE_RATE * 0.3 - V.outreach_cost)} a year).</b> In testing on four datasets with answer keys, 88 of 96 flagged merchants did leave, so about 9 in 10. How many a call keeps is not known, because the data has no outcomes, so the range assumes 1 to 3 in 10. The cost of the calls, {rs(V.outreach_cost)}, is taken off. Each call pays for itself if about 2 in 100 calls work.</li>
+          <li><b>Likely saving ({rs(V.call_list_value * TESTED_LEAVE_RATE * SAVE_RATE - V.outreach_cost)} a year).</b> In testing on four datasets with answer keys, 88 of 96 flagged merchants did leave, so about 9 in 10. The data has no record of what happened after a call, so the share a call keeps comes from a published randomised trial in which likely leavers were listed to be called: their leaving rate fell from 17.2% to 15.3%, so about 1 in 9 were kept (Godinho de Matos, Ferreira and Belo, Marketing Science, 2018). The cost of the calls, {rs(V.outreach_cost)}, is taken off. Each call pays for itself if about 2 in 100 calls work.</li>
+          <li><b>Optimistic case ({rs(V.call_list_value * TESTED_LEAVE_RATE * SAVE_RATE_OPTIMISTIC - V.outreach_cost)} a year).</b> If 3 in 10 calls keep the merchant, the default used in churn research (Verbraken, Verbeke and Baesens, 2013). This is an assumption, not a measurement.</li>
+          <li><b>Limits.</b> The trial was with telecom customers, not merchants with a dedicated CSM. Outreach can also backfire: in another trial, a retention campaign raised leaving from about 6% to 10% (Ascarza, Iyengar and Schleicher, 2016). Recording who stayed after each call would replace these borrowed figures with Razorpay's own.</li>
         </ol>
         <h3 className="how-h">How the calls are picked</h3>
         <ol className="how">
