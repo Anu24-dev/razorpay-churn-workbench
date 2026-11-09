@@ -330,6 +330,7 @@ def cover_line(min_value, cost, n):
     if times == 1:
         return f"a year. Keeping just this one covers all {n} calls."
     return f"a year. Keeping one merchant worth more than {rs(cost)} covers all {n} calls."
+ss.setdefault('decisions', {}); ss.setdefault('audit', []); ss.setdefault('review_decisions', {}); ss.setdefault('qa', {}); ss.setdefault('selected', None)
 
 
 def log(action, merchant_id, detail=''):
